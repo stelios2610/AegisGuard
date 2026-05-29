@@ -2,14 +2,17 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from typing import Optional, List
 import io
 import psutil
+from web.auth import (require_auth, attempt_login, create_session,
+                      delete_session, get_session_user, ensure_default_admin,
+                      hash_password, COOKIE_NAME, SESSION_HOURS)
 
 from db import database
 from core import (monitor, ips, rules_engine, web_filter, app_control,
@@ -23,6 +26,7 @@ from core.ipsec_manager import (create_ipsec_tunnel, remove_ipsec_tunnel,
 from core.mfa import hash_password
 
 database.initialize()
+ensure_default_admin()
 ips.start()
 reputation.init()
 multiwan_manager.start()
@@ -42,7 +46,19 @@ def _log_pruner():
 
 _threading.Thread(target=_log_pruner, daemon=True).start()
 
-app = FastAPI(title="AegisGuard", version="1.0.0", docs_url="/api/docs")
+app = FastAPI(title="AegisGuard", version="1.0.0", docs_url=None)
+
+# ── Auth middleware — protects all HTML pages ─────────────────────────────────
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        redirect = require_auth(request)
+        if redirect:
+            return redirect
+        return await call_next(request)
+
+app.add_middleware(AuthMiddleware)
 
 BASE_DIR = os.path.dirname(__file__)
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
@@ -62,6 +78,42 @@ def _ctx(request, **kw):
         "connected_vpns": connected_vpns,
         **kw
     })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AUTH ROUTES
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, error: str = "", next: str = "/"):
+    if get_session_user(request):
+        return RedirectResponse(url="/", status_code=302)
+    return templates.TemplateResponse(request, "login.html", {"error": error})
+
+@app.post("/login")
+async def login_submit(request: Request,
+                       username: str = Form(...),
+                       password: str = Form(...),
+                       next: str = Form(default="/")):
+    if attempt_login(username, password):
+        token = create_session(username)
+        response = RedirectResponse(url=next or "/", status_code=302)
+        response.set_cookie(
+            COOKIE_NAME, token,
+            httponly=True, samesite="lax",
+            max_age=SESSION_HOURS * 3600
+        )
+        return response
+    return templates.TemplateResponse(request, "login.html",
+                                      {"error": "Invalid username or password"},
+                                      status_code=401)
+
+@app.get("/logout")
+async def logout(request: Request):
+    delete_session(request)
+    response = RedirectResponse(url="/login", status_code=302)
+    response.delete_cookie(COOKIE_NAME)
+    return response
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -911,6 +963,20 @@ async def api_save_settings(request: Request):
 async def api_sync_fw():
     r = rules_engine.sync_all_rules()
     return {"synced":sum(1 for _,ok,_ in r if ok),"total":len(r)}
+
+@app.post("/api/settings/change-password")
+async def api_change_password(request: Request):
+    data = await request.json()
+    current = data.get("current_password", "")
+    new_pw  = data.get("new_password", "")
+    if not new_pw or len(new_pw) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    stored_hash = database.get_setting("admin_password_hash", "")
+    from web.auth import verify_password
+    if not verify_password(current, stored_hash):
+        raise HTTPException(401, "Current password is incorrect")
+    database.set_setting("admin_password_hash", hash_password(new_pw))
+    return {"status": "ok"}
 
 # Log servers
 class LogServer(BaseModel):
