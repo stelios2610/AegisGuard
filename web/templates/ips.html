@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Intrusion Prevention{% endblock %}
+{% block page_title %}Intrusion Prevention System{% endblock %}
+{% set active = "ips" %}
+
+{% block content %}
+
+<!-- Stats Row -->
+<div class="grid grid-4" style="margin-bottom:16px">
+  <div class="stat-card red">
+    <div class="value" id="alert-count">{{ alerts|length }}</div>
+    <div class="label">Active Alerts</div>
+  </div>
+  <div class="stat-card blue">
+    <div class="value">{{ signatures|length }}</div>
+    <div class="label">Loaded Signatures</div>
+  </div>
+  <div class="stat-card green">
+    <div class="value">{{ signatures|selectattr('enabled')|list|length }}</div>
+    <div class="label">Active Signatures</div>
+  </div>
+  <div class="stat-card orange">
+    <div class="value">{{ signatures|rejectattr('enabled')|list|length }}</div>
+    <div class="label">Disabled Signatures</div>
+  </div>
+</div>
+
+<!-- Signatures Table -->
+<div class="card">
+  <div class="card-header">
+    <div>
+      <div class="card-title">IPS Signatures</div>
+      <div class="card-sub">{{ signatures|length }} signature(s) loaded · Pattern-based intrusion detection</div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <input id="search-input" class="form-control" style="max-width:260px" placeholder="Search signatures...">
+    <div class="toolbar-right">
+      <select class="form-control" id="sev-filter" onchange="filterBySeverity()" style="max-width:140px">
+        <option value="">All Severities</option>
+        <option value="CRITICAL">CRITICAL</option>
+        <option value="HIGH">HIGH</option>
+        <option value="MEDIUM">MEDIUM</option>
+        <option value="LOW">LOW</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table id="main-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Category</th>
+          <th>Severity</th>
+          <th>Pattern</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sig in signatures %}
+        {% set sev_class = {'CRITICAL': 'critical', 'HIGH': 'high', 'MEDIUM': 'med', 'LOW': 'info'} %}
+        <tr id="sig-{{ sig.id }}">
+          <td class="font-mono text-muted">{{ sig.id }}</td>
+          <td>{{ sig.name }}</td>
+          <td><span class="badge badge-info">{{ sig.category }}</span></td>
+          <td>
+            <span class="badge badge-{{ sev_class.get(sig.severity, 'info') }}">{{ sig.severity }}</span>
+          </td>
+          <td class="font-mono" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ sig.pattern }}">
+            {{ sig.pattern }}
+          </td>
+          <td>
+            <span class="badge badge-{{ 'allow' if sig.enabled else 'disabled' }}">
+              {{ 'Enabled' if sig.enabled else 'Disabled' }}
+            </span>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="text-muted" style="text-align:center;padding:30px">
+            No IPS signatures loaded. Signatures are loaded automatically on startup.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Live Alerts Table -->
+<div class="card">
+  <div class="card-header">
+    <div>
+      <div class="card-title">Live Security Alerts</div>
+      <div class="card-sub">Real-time intrusion detection events · Auto-refreshes every 4 seconds</div>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-secondary btn-sm" onclick="refreshAlerts()">Refresh</button>
+      <button class="btn btn-danger btn-sm" onclick="clearAlerts()">Clear All</button>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>Severity</th>
+          <th>Signature</th>
+          <th>Source IP</th>
+          <th>Detail</th>
+        </tr>
+      </thead>
+      <tbody id="alert-tbody">
+        {% for a in alerts %}
+        {% set sev_class = {'CRITICAL': 'critical', 'HIGH': 'high', 'MEDIUM': 'med', 'LOW': 'info'} %}
+        <tr>
+          <td class="font-mono text-muted">{{ a.timestamp[:19]|replace('T',' ') if a.timestamp else '—' }}</td>
+          <td><span class="badge badge-{{ sev_class.get(a.severity, 'info') }}">{{ a.severity }}</span></td>
+          <td>{{ a.name }}</td>
+          <td class="font-mono">{{ a.remote_ip }}</td>
+          <td class="text-muted">{{ a.detail }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" class="text-muted" style="text-align:center;padding:20px">No alerts detected. System is monitoring traffic.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function clearAlerts() {
+  if (!confirm2('Clear all IPS alerts?')) return;
+  try {
+    await POST('/api/ips/clear');
+    document.getElementById('alert-tbody').innerHTML =
+      '<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">No alerts detected. System is monitoring traffic.</td></tr>';
+    document.getElementById('alert-count').textContent = '0';
+    toast('Alerts cleared', 'success');
+  } catch (e) { toast('Error: ' + e.message, 'error'); }
+}
+
+function filterBySeverity() {
+  const val = document.getElementById('sev-filter').value.toLowerCase();
+  document.querySelectorAll('#main-table tbody tr').forEach(row => {
+    row.style.display = (!val || row.textContent.toLowerCase().includes(val)) ? '' : 'none';
+  });
+}
+</script>
+{% endblock %}

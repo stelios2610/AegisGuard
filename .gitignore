@@ -1,0 +1,26 @@
+# Database
+firewall.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.venv/
+
+# Build artifacts
+build/iso-work/
+build/*.iso
+build/*.iso.new
+build/build.log
+
+# VPN keys/configs (sensitive)
+pki/
+vpn-configs/
+ssl-vpn-server.conf
+*.key
+*.ovpn
+
+# Logs
+*.log

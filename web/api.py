@@ -1,0 +1,1271 @@
+"""AegisGuard Web API - Complete FastAPI backend."""
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
+from typing import Optional, List
+import io
+import psutil
+
+from db import database
+from core import (monitor, ips, rules_engine, web_filter, app_control,
+                  vpn_manager, network_manager, gateway_av, reputation,
+                  spam_filter, network_discovery, dlp, vpn_keygen, mfa,
+                  ssl_vpn, bov_manager)
+from core.platform import IS_LINUX, is_root
+from core import multiwan_manager, ha_manager
+from core.ipsec_manager import (create_ipsec_tunnel, remove_ipsec_tunnel,
+                                 get_ipsec_tunnels, get_ipsec_sa, generate_psk)
+from core.mfa import hash_password
+
+database.initialize()
+ips.start()
+reputation.init()
+multiwan_manager.start()
+ha_manager.start_sync()
+
+# ── Background log pruning (every hour, 2 GB limit) ──────────────────────────
+import threading as _threading
+
+def _log_pruner():
+    import time
+    while True:
+        time.sleep(3600)
+        try:
+            database.prune_logs(max_bytes=2_147_483_648)
+        except Exception:
+            pass
+
+_threading.Thread(target=_log_pruner, daemon=True).start()
+
+app = FastAPI(title="AegisGuard", version="1.0.0", docs_url="/api/docs")
+
+BASE_DIR = os.path.dirname(__file__)
+app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
+
+
+def _ctx(request, **kw):
+    stats = database.get_log_stats()
+    alerts = ips.get_alerts(5)
+    vpn_statuses = vpn_manager.get_all_statuses()
+    connected_vpns = sum(1 for s in vpn_statuses.values() if s.get("status") == "Connected")
+    return templates.TemplateResponse(request, kw.pop("template"), {
+        "stats": stats,
+        "threat_count": len(alerts),
+        "is_linux": IS_LINUX,
+        "is_root": is_root(),
+        "connected_vpns": connected_vpns,
+        **kw
+    })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HTML PAGES
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    conns = monitor.get_connections()
+    net = monitor.get_network_stats()
+    alerts = ips.get_alerts(10)
+    ddos = reputation.get_ddos_stats()
+    return _ctx(request, template="dashboard.html", connections=conns[:30],
+                net_stats=net, alerts=alerts, conn_count=len(conns),
+                ddos_blocked=ddos["blocked_count"])
+
+@app.get("/firewall", response_class=HTMLResponse)
+async def firewall_page(request: Request):
+    rules = database.get_rules()
+    return _ctx(request, template="firewall.html", rules=rules)
+
+@app.get("/appcontrol", response_class=HTMLResponse)
+async def appcontrol_page(request: Request):
+    return _ctx(request, template="appcontrol.html",
+                rules=database.get_app_rules(), running=app_control.get_running_apps())
+
+@app.get("/webfilter", response_class=HTMLResponse)
+async def webfilter_page(request: Request):
+    wf_state, wf_count = web_filter.get_hosts_status()
+    return _ctx(request, template="webfilter.html",
+                filters=database.get_web_filters(),
+                categories=database.get_web_categories(),
+                wf_state=wf_state, wf_count=wf_count)
+
+@app.get("/ips", response_class=HTMLResponse)
+async def ips_page(request: Request):
+    return _ctx(request, template="ips.html",
+                signatures=ips.get_signatures(), alerts=ips.get_alerts(100))
+
+@app.get("/vpn", response_class=HTMLResponse)
+async def vpn_page(request: Request):
+    profiles = database.get_vpn_profiles()
+    for p in profiles:
+        p["live_status"] = vpn_manager.get_status(p["id"]).get("status", "Disconnected")
+    bov_tunnels = database.get_bov_tunnels()
+    ssl_config = database.get_ssl_vpn_config()
+    vpn_users = database.get_vpn_users()
+    ipsec_sa = get_ipsec_sa()
+    return _ctx(request, template="vpn.html",
+                profiles=profiles,
+                bov_tunnels=bov_tunnels,
+                ssl_config=ssl_config,
+                ssl_initialized=ssl_vpn.is_pki_initialized(),
+                vpn_users=vpn_users,
+                ipsec_sa=ipsec_sa)
+
+@app.get("/blocked", response_class=HTMLResponse)
+async def blocked_page(request: Request):
+    ip_rules = [r for r in database.get_rules() if r["name"].startswith("Block-IP:")]
+    domain_rules = [f for f in database.get_web_filters() if f["action"] == "BLOCK"]
+    return _ctx(request, template="blocked.html", ip_rules=ip_rules, domain_rules=domain_rules)
+
+@app.get("/monitor", response_class=HTMLResponse)
+async def monitor_page(request: Request):
+    return _ctx(request, template="monitor.html",
+                connections=monitor.get_connections(),
+                ifaces=monitor.get_per_interface_stats())
+
+@app.get("/logs", response_class=HTMLResponse)
+async def logs_page(request: Request, action: Optional[str] = None,
+                    search: Optional[str] = None, limit: int = 250):
+    logs = database.get_logs(limit=limit, action_filter=action or None, search=search or None)
+    return _ctx(request, template="logs.html", logs=logs, action=action,
+                search=search, limit=limit)
+
+@app.get("/network", response_class=HTMLResponse)
+async def network_page(request: Request, tab: Optional[str] = "interfaces"):
+    return _ctx(request, template="network.html",
+                active_tab=tab,
+                interfaces=database.get_interfaces(),
+                sys_ifaces=network_manager.get_system_interfaces(),
+                routes=database.get_routes(),
+                sys_routes=network_manager.get_system_routes(),
+                dhcp_configs=database.get_dhcp_configs(),
+                dhcp_leases=database.get_dhcp_leases(),
+                nat_rules=database.get_nat_rules(),
+                qos_rules=database.get_qos_rules(),
+                dns=database.get_dns_settings(),
+                vlans=database.get_vlans(),
+                dmz_configs=database.get_dmz_configs())
+
+@app.get("/security", response_class=HTMLResponse)
+async def security_page(request: Request):
+    bl_stats = reputation.get_blocklist_stats()
+    ddos = reputation.get_ddos_stats()
+    av_stats = gateway_av.get_stats()
+    av_available = gateway_av.is_clamav_available()
+    dlp_patterns = dlp.get_patterns()
+    blocked_countries = reputation.get_blocked_countries()
+    return _ctx(request, template="security.html",
+                bl_stats=bl_stats, ddos=ddos, av_stats=av_stats,
+                av_available=av_available, dlp_patterns=dlp_patterns,
+                blocked_countries=blocked_countries)
+
+@app.get("/discovery", response_class=HTMLResponse)
+async def discovery_page(request: Request):
+    results = network_discovery.get_scan_results()
+    arp = network_discovery.get_arp_table()
+    scanning = network_discovery.is_scanning()
+    return _ctx(request, template="discovery.html",
+                results=results, arp=arp, scanning=scanning,
+                nmap_available=network_discovery.is_nmap_available())
+
+@app.get("/auth", response_class=HTMLResponse)
+async def auth_page(request: Request):
+    return _ctx(request, template="auth.html",
+                users=database.get_users(), groups=database.get_groups())
+
+@app.get("/certificates", response_class=HTMLResponse)
+async def certs_page(request: Request):
+    return _ctx(request, template="certificates.html",
+                certs=database.get_certificates())
+
+@app.get("/ha", response_class=HTMLResponse)
+async def ha_page(request: Request):
+    return _ctx(request, template="ha.html",
+                ha=database.get_ha_config())
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    settings = database.get_all_settings()
+    wf_status = rules_engine.get_firewall_status()
+    log_servers = database.get_log_servers()
+    return _ctx(request, template="settings.html",
+                settings=settings, wf_status=wf_status, log_servers=log_servers)
+
+@app.get("/proxies", response_class=HTMLResponse)
+async def proxies_page(request: Request):
+    return _ctx(request, template="proxies.html",
+                proxy_rules=database.get_proxy_rules())
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — Dashboard
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/dashboard")
+async def api_dashboard():
+    conns = monitor.get_connections()
+    stats = database.get_log_stats()
+    net = monitor.get_network_stats()
+    alerts = ips.get_alerts(100)
+    ddos = reputation.get_ddos_stats()
+    try:
+        cpu = psutil.cpu_percent(interval=0)
+        mem = psutil.virtual_memory()
+        disk = psutil.disk_usage("/")
+    except Exception:
+        cpu, mem, disk = 0, None, None
+    return {
+        "connections": len(conns),
+        "blocked_today": stats["today"],
+        "threats": len(alerts),
+        "total_logs": stats["total"],
+        "bytes_sent": net["bytes_sent"],
+        "bytes_recv": net["bytes_recv"],
+        "bytes_sent_fmt": monitor.format_bytes(net["bytes_sent"]),
+        "bytes_recv_fmt": monitor.format_bytes(net["bytes_recv"]),
+        "cpu_percent": cpu,
+        "mem_percent": mem.percent if mem else 0,
+        "disk_percent": disk.percent if disk else 0,
+        "ddos_blocked": ddos["blocked_count"],
+        "bl_ips": reputation.get_blocklist_stats()["total_ips"],
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — Firewall Rules
+# ══════════════════════════════════════════════════════════════════════════════
+
+class RuleCreate(BaseModel):
+    name: str; action: str; direction: str; protocol: str = "ANY"
+    local_ip: str = ""; remote_ip: str = ""; local_port: str = ""
+    remote_port: str = ""; enabled: int = 1; priority: int = 100
+    description: str = ""; interface: str = ""; log_match: int = 0
+
+@app.get("/api/rules")
+async def api_get_rules():
+    return database.get_rules()
+@app.post("/api/rules")
+async def api_add_rule(rule: RuleCreate):
+    database.add_rule(**rule.model_dump())
+    rules = database.get_rules()
+    new_rule = max(rules, key=lambda r: r["id"])
+    ok, msg = rules_engine.sync_rule_to_system(new_rule)
+    return {"status": "ok", "applied": ok, "message": msg}
+
+@app.put("/api/rules/{rule_id}")
+async def api_update_rule(rule_id: int, rule: RuleCreate):
+    database.update_rule(rule_id, **rule.model_dump())
+    updated = next((r for r in database.get_rules() if r["id"] == rule_id), None)
+    if updated:
+        rules_engine.remove_rule_from_system(updated)
+        rules_engine.sync_rule_to_system(updated)
+    return {"status": "ok"}
+
+@app.delete("/api/rules/{rule_id}")
+async def api_delete_rule(rule_id: int):
+    rule = next((r for r in database.get_rules() if r["id"] == rule_id), None)
+    if rule: rules_engine.remove_rule_from_system(rule)
+    database.delete_rule(rule_id); return {"status": "ok"}
+
+@app.post("/api/rules/{rule_id}/toggle")
+async def api_toggle_rule(rule_id: int):
+    rule = next((r for r in database.get_rules() if r["id"] == rule_id), None)
+    if not rule: raise HTTPException(404)
+    new_enabled = 0 if rule["enabled"] else 1
+    database.update_rule(rule_id, enabled=new_enabled)
+    updated = next((r for r in database.get_rules() if r["id"] == rule_id), None)
+    if updated:
+        rules_engine.remove_rule_from_system(updated)
+        if new_enabled:
+            rules_engine.sync_rule_to_system(updated)
+    return {"status": "ok"}
+@app.post("/api/rules/sync")
+async def api_sync_rules():
+    r = rules_engine.sync_all_rules()
+    return {"synced": sum(1 for _,ok,_ in r if ok), "total": len(r)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — Network Interfaces
+# ══════════════════════════════════════════════════════════════════════════════
+
+class IfaceCreate(BaseModel):
+    name: str; role: str = "LAN"; ip_mode: str = "static"
+    ip_address: str = ""; netmask: str = "255.255.255.0"; gateway: str = ""
+    mtu: int = 1500; description: str = ""; enabled: int = 1
+    vlan_id: int = 0; pppoe_user: str = ""; pppoe_pass: str = ""; mac_override: str = ""
+
+@app.get("/api/network/interfaces")
+async def api_get_ifaces():
+    db_ifaces = {i["name"]: i for i in database.get_interfaces()}
+    sys_ifaces = network_manager.get_system_interfaces()
+    for si in sys_ifaces:
+        if si["name"] in db_ifaces:
+            si["db"] = db_ifaces[si["name"]]
+    return sys_ifaces
+
+@app.post("/api/network/interfaces")
+async def api_add_iface(iface: IfaceCreate):
+    database.add_interface(**iface.model_dump()); return {"status": "ok"}
+
+@app.put("/api/network/interfaces/{iface_id}")
+async def api_update_iface(iface_id: int, iface: IfaceCreate):
+    database.update_interface(iface_id, **iface.model_dump()); return {"status": "ok"}
+
+@app.delete("/api/network/interfaces/{iface_id}")
+async def api_delete_iface(iface_id: int):
+    database.delete_interface(iface_id); return {"status": "ok"}
+
+@app.post("/api/network/interfaces/{iface_id}/apply")
+async def api_apply_iface(iface_id: int):
+    ifaces = database.get_interfaces()
+    iface = next((i for i in ifaces if i["id"] == iface_id), None)
+    if not iface: raise HTTPException(404)
+    ok, msg = network_manager.apply_interface(iface)
+    return {"status": "ok" if ok else "error", "message": msg}
+
+@app.post("/api/network/apply-all")
+async def api_apply_all_ifaces():
+    ifaces = database.get_interfaces()
+    ok, msg = network_manager.write_network_config(ifaces)
+    return {"status": "ok" if ok else "error", "message": msg}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — VLANs
+# ══════════════════════════════════════════════════════════════════════════════
+
+class VlanCreate(BaseModel):
+    vlan_id: int; name: str; parent_interface: str
+    ip_address: str = ""; netmask: str = "255.255.255.0"; gateway: str = ""
+    zone: str = "OPTIONAL"; dhcp_enabled: int = 0; dhcp_start: str = ""; dhcp_end: str = ""
+    mtu: int = 1500; enabled: int = 1; description: str = ""
+
+@app.get("/api/network/vlans")
+async def api_get_vlans():
+    return database.get_vlans()
+
+@app.post("/api/network/vlans")
+async def api_add_vlan(v: VlanCreate):
+    database.add_vlan(**v.model_dump()); return {"status": "ok"}
+
+@app.put("/api/network/vlans/{vid}")
+async def api_update_vlan(vid: int, v: VlanCreate):
+    database.update_vlan(vid, **v.model_dump()); return {"status": "ok"}
+
+@app.delete("/api/network/vlans/{vid}")
+async def api_del_vlan(vid: int):
+    database.delete_vlan(vid); return {"status": "ok"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — DMZ
+# ══════════════════════════════════════════════════════════════════════════════
+
+class DmzConfig(BaseModel):
+    interface: str; ip_address: str = ""; netmask: str = "255.255.255.0"
+    allowed_ports: str = "80,443"; block_dmz_to_lan: int = 1
+    log_all: int = 1; enabled: int = 1
+
+@app.get("/api/network/dmz")
+async def api_get_dmz():
+    return database.get_dmz_configs()
+
+@app.post("/api/network/dmz")
+async def api_add_dmz(d: DmzConfig):
+    database.save_dmz_config(**d.model_dump()); return {"status": "ok"}
+
+@app.put("/api/network/dmz/{did}")
+async def api_update_dmz(did: int, d: DmzConfig):
+    database.save_dmz_config(**d.model_dump()); return {"status": "ok"}
+
+@app.delete("/api/network/dmz/{did}")
+async def api_del_dmz(did: int):
+    database.delete_dmz_config(did); return {"status": "ok"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — Routes
+# ══════════════════════════════════════════════════════════════════════════════
+
+class RouteCreate(BaseModel):
+    destination: str; netmask: str; gateway: str
+    interface: str = ""; metric: int = 1; enabled: int = 1; description: str = ""
+
+@app.get("/api/network/routes")
+async def api_get_routes():
+    return database.get_routes()
+@app.post("/api/network/routes")
+async def api_add_route(r: RouteCreate):
+    database.add_route(**r.model_dump()); return {"status": "ok"}
+@app.delete("/api/network/routes/{route_id}")
+async def api_del_route(route_id: int):
+    database.delete_route(route_id); return {"status": "ok"}
+@app.post("/api/network/routes/apply")
+async def api_apply_routes():
+    ok, msg = network_manager.apply_routes(); return {"status": "ok" if ok else "error", "message": msg}
+@app.get("/api/network/routes/system")
+async def api_sys_routes(): return {"routes": network_manager.get_system_routes()}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — DHCP
+# ══════════════════════════════════════════════════════════════════════════════
+
+class DhcpConfig(BaseModel):
+    interface: str; start_ip: str; end_ip: str; subnet_mask: str
+    gateway: str = ""; dns1: str = "1.1.1.1"; dns2: str = "8.8.8.8"
+    lease_time: int = 86400; domain: str = ""; enabled: int = 1
+
+class DhcpLease(BaseModel):
+    mac: str; ip: str; hostname: str = ""; interface: str = ""
+
+@app.get("/api/dhcp/config")
+async def api_dhcp_config():
+    return database.get_dhcp_configs()
+@app.post("/api/dhcp/config")
+async def api_save_dhcp(c: DhcpConfig):
+    database.save_dhcp_config(**c.model_dump()); return {"status": "ok"}
+@app.post("/api/dhcp/apply")
+async def api_apply_dhcp():
+    ok, msg = network_manager.write_dhcp_config(); return {"status":"ok" if ok else "error","message":msg}
+@app.get("/api/dhcp/leases")
+async def api_dhcp_leases():
+    return database.get_dhcp_leases()
+@app.get("/api/dhcp/active")
+async def api_dhcp_active():
+    return network_manager.get_dhcp_active_leases()
+@app.post("/api/dhcp/leases")
+async def api_add_lease(l: DhcpLease):
+    database.add_dhcp_lease(**l.model_dump()); return {"status":"ok"}
+@app.delete("/api/dhcp/leases/{lid}")
+async def api_del_lease(lid: int):
+    database.delete_dhcp_lease(lid); return {"status":"ok"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — DNS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/dns")
+async def api_get_dns():
+    return database.get_dns_settings()
+@app.post("/api/dns")
+async def api_save_dns(request: Request):
+    data = await request.json()
+    database.save_dns_settings(**data); return {"status":"ok"}
+@app.post("/api/dns/apply")
+async def api_apply_dns():
+    ok, msg = network_manager.apply_dns_settings(); return {"status":"ok" if ok else "error","message":msg}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — NAT
+# ══════════════════════════════════════════════════════════════════════════════
+
+class NatRule(BaseModel):
+    name: str; nat_type: str; internal_ip: str
+    external_ip: str = ""; external_port: str = ""; internal_port: str = ""
+    protocol: str = "TCP"; interface: str = ""; enabled: int = 1; description: str = ""
+
+@app.get("/api/nat")
+async def api_get_nat():
+    return database.get_nat_rules()
+
+@app.post("/api/nat")
+async def api_add_nat(r: NatRule):
+    database.add_nat_rule(**r.model_dump())
+    # Auto-apply the new rule immediately
+    rules = database.get_nat_rules()
+    new_rule = max(rules, key=lambda x: x["id"])
+    if new_rule["type"] == "1-to-1":
+        ok, msg = network_manager._apply_static_nat(new_rule)
+    else:
+        ok, msg = network_manager.apply_nat_rules()
+    return {"status": "ok", "applied": ok, "message": msg}
+
+@app.delete("/api/nat/{rid}")
+async def api_del_nat(rid: int):
+    rule = next((r for r in database.get_nat_rules() if r["id"] == rid), None)
+    if rule and rule["type"] == "1-to-1":
+        network_manager.remove_static_nat(rule)
+    database.delete_nat_rule(rid)
+    return {"status": "ok"}
+
+@app.post("/api/nat/apply")
+async def api_apply_nat():
+    ok, msg = network_manager.apply_nat_rules()
+    return {"status": "ok" if ok else "error", "message": msg}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — QoS
+# ══════════════════════════════════════════════════════════════════════════════
+
+class QosRule(BaseModel):
+    name: str; priority: str = "NORMAL"; protocol: str = "ANY"
+    src_ip: str = ""; dst_ip: str = ""; src_port: str = ""; dst_port: str = ""
+    bandwidth_limit: int = 0; bandwidth_unit: str = "kbps"; enabled: int = 1; description: str = ""
+
+@app.get("/api/qos")
+async def api_get_qos():
+    return database.get_qos_rules()
+@app.post("/api/qos")
+async def api_add_qos(r: QosRule):
+    database.add_qos_rule(**r.model_dump()); return {"status":"ok"}
+@app.delete("/api/qos/{rid}")
+async def api_del_qos(rid: int):
+    database.delete_qos_rule(rid); return {"status":"ok"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — App Control
+# ══════════════════════════════════════════════════════════════════════════════
+
+class AppRuleCreate(BaseModel):
+    name: str; exe_path: str; action: str; direction: str = "BOTH"; enabled: int = 1; description: str = ""
+
+@app.get("/api/appcontrol/rules")
+async def api_get_app_rules():
+    return database.get_app_rules()
+@app.post("/api/appcontrol/rules")
+async def api_add_app_rule(r: AppRuleCreate):
+    database.add_app_rule(**r.model_dump()); return {"status":"ok"}
+@app.delete("/api/appcontrol/rules/{rid}")
+async def api_del_app_rule(rid: int):
+    rule = next((r for r in database.get_app_rules() if r["id"]==rid), None)
+    if rule: app_control.remove_app_rule(rule)
+    database.delete_app_rule(rid); return {"status":"ok"}
+@app.post("/api/appcontrol/sync")
+async def api_sync_app():
+    r = app_control.sync_all_app_rules()
+    return {"synced": sum(1 for _,ok,_ in r if ok), "total": len(r)}
+@app.get("/api/appcontrol/running")
+async def api_running():
+    return app_control.get_running_apps()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — Web Filter
+# ══════════════════════════════════════════════════════════════════════════════
+
+class WFCreate(BaseModel):
+    pattern: str; category: str = "Custom"; action: str = "BLOCK"; enabled: int = 1; description: str = ""
+
+@app.get("/api/webfilter")
+async def api_get_wf():
+    return database.get_web_filters()
+@app.post("/api/webfilter")
+async def api_add_wf(f: WFCreate):
+    database.add_web_filter(**f.model_dump()); return {"status":"ok"}
+@app.delete("/api/webfilter/{fid}")
+async def api_del_wf(fid: int):
+    database.delete_web_filter(fid); return {"status":"ok"}
+@app.post("/api/webfilter/apply")
+async def api_apply_wf():
+    ok, msg = web_filter.apply_filters(); web_filter.flush_dns()
+    return {"status":"ok" if ok else "error","message":msg}
+@app.post("/api/webfilter/remove")
+async def api_remove_wf():
+    ok, msg = web_filter.remove_filters(); return {"status":"ok" if ok else "error","message":msg}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — VPN
+# ══════════════════════════════════════════════════════════════════════════════
+
+class VPNCreate(BaseModel):
+    name: str; vpn_type: str; config_path: str; server: str = ""; auto_connect: int = 0
+
+@app.get("/api/vpn/profiles")
+async def api_get_vpn():
+    p = database.get_vpn_profiles()
+    for x in p: x["live_status"] = vpn_manager.get_status(x["id"]).get("status","Disconnected")
+    return p
+
+@app.post("/api/vpn/profiles")
+async def api_add_vpn(p: VPNCreate):
+    database.add_vpn_profile(**p.model_dump()); return {"status":"ok"}
+
+@app.delete("/api/vpn/profiles/{pid}")
+async def api_del_vpn(pid: int):
+    database.delete_vpn_profile(pid); return {"status":"ok"}
+
+@app.post("/api/vpn/{pid}/connect")
+async def api_vpn_connect(pid: int):
+    profile = next((p for p in database.get_vpn_profiles() if p["id"]==pid), None)
+    if not profile: raise HTTPException(404)
+    ok, msg = vpn_manager.connect(profile)
+    return {"status":"ok" if ok else "error","message":msg}
+
+@app.post("/api/vpn/{pid}/disconnect")
+async def api_vpn_disconnect(pid: int):
+    profile = next((p for p in database.get_vpn_profiles() if p["id"]==pid), None)
+    if not profile: raise HTTPException(404)
+    ok, msg = vpn_manager.disconnect(profile)
+    return {"status":"ok" if ok else "error","message":msg}
+
+@app.post("/api/vpn/wireguard/keygen")
+async def api_wg_keygen():
+    priv, pub = vpn_keygen.generate_wireguard_keypair()
+    psk = vpn_keygen.generate_wireguard_preshared_key()
+    return {"private_key": priv, "public_key": pub, "preshared_key": psk}
+
+@app.post("/api/vpn/openvpn/pki/generate")
+async def api_openvpn_pki(request: Request):
+    data = await request.json()
+    output_dir = data.get("output_dir", "/etc/aegisguard/pki")
+    result = vpn_keygen.generate_openvpn_pki(output_dir,
+                                              server_name=data.get("server_name","server"),
+                                              client_name=data.get("client_name","client"))
+    return result
+
+@app.get("/api/vpn/openvpn/server-config")
+async def api_ovpn_server_cfg(pki_dir: str = "/etc/aegisguard/pki",
+                               server_ip: str = "0.0.0.0", port: int = 1194):
+    conf = vpn_keygen.generate_openvpn_server_config(pki_dir, port=port)
+    return StreamingResponse(io.StringIO(conf), media_type="text/plain",
+                             headers={"Content-Disposition": "attachment; filename=server.conf"})
+
+@app.get("/api/vpn/openvpn/client-config")
+async def api_ovpn_client_cfg(server_ip: str, pki_dir: str = "/etc/aegisguard/pki", port: int = 1194):
+    conf = vpn_keygen.generate_openvpn_client_config(server_ip, pki_dir, port=port)
+    return StreamingResponse(io.StringIO(conf), media_type="text/plain",
+                             headers={"Content-Disposition": "attachment; filename=client.ovpn"})
+
+@app.get("/api/vpn/wireguard/generate-config")
+async def api_wg_config(endpoint: str, server_pubkey: str, client_privkey: str,
+                         client_address: str, dns: str = "1.1.1.1"):
+    conf = vpn_manager.generate_wireguard_config(endpoint, server_pubkey, client_privkey, client_address, dns)
+    return StreamingResponse(io.StringIO(conf), media_type="text/plain",
+                             headers={"Content-Disposition": "attachment; filename=wg0.conf"})
+
+@app.get("/api/vpn/wireguard/peers")
+async def api_wg_peers():
+    return vpn_manager.get_wireguard_peers()
+
+# IPSec
+class IPSecCreate(BaseModel):
+    name: str; local_subnet: str; remote_gateway: str; remote_subnet: str; psk: str
+    ike_version: str = "IKEv2"; ike_cipher: str = "AES256"; ike_hash: str = "SHA256"
+    dh_group: str = "DH14"; esp_cipher: str = "AES256"; esp_hash: str = "SHA256"
+    enabled: int = 1; description: str = ""
+
+@app.get("/api/vpn/ipsec")
+async def api_ipsec_list():
+    return database.get_ipsec_tunnels()
+@app.post("/api/vpn/ipsec")
+async def api_add_ipsec(t: IPSecCreate):
+    database.add_ipsec_tunnel(**t.model_dump()); return {"status":"ok"}
+@app.delete("/api/vpn/ipsec/{tid}")
+async def api_del_ipsec(tid: int):
+    tunnel = next((t for t in database.get_ipsec_tunnels() if t["id"]==tid), None)
+    if tunnel: remove_ipsec_tunnel(tunnel["name"])
+    database.delete_ipsec_tunnel(tid); return {"status":"ok"}
+@app.post("/api/vpn/ipsec/psk")
+async def api_gen_psk():
+    return {"psk": generate_psk()}
+@app.get("/api/vpn/ipsec/sa")
+async def api_ipsec_sa():
+    return get_ipsec_sa()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — IPS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/ips/alerts")
+async def api_ips_alerts():
+    return ips.get_alerts(200)
+@app.get("/api/ips/signatures")
+async def api_ips_sigs():
+    return ips.get_signatures()
+@app.post("/api/ips/clear")
+async def api_ips_clear(): ips.clear_alerts(); return {"status":"ok"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — Security Services (RED, AV, DLP, Spam, Geo)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/security/reputation")
+async def api_rep_stats():
+    return reputation.get_blocklist_stats()
+@app.post("/api/security/reputation/update")
+async def api_rep_update():
+    results = reputation.update_blocklists()
+    return {"status":"ok","results":results}
+
+@app.post("/api/security/reputation/check")
+async def api_rep_check(request: Request):
+    data = await request.json()
+    ip = data.get("ip","")
+    blocked = reputation.is_ip_blocked(ip)
+    geo = reputation.lookup_ip(ip)
+    return {"ip":ip,"blocked":blocked,"geo":geo}
+
+@app.get("/api/security/ddos")
+async def api_ddos_stats():
+    return reputation.get_ddos_stats()
+@app.post("/api/security/ddos/unblock/{ip}")
+async def api_ddos_unblock(ip: str): reputation.unblock_ip(ip); return {"status":"ok"}
+@app.post("/api/security/ddos/config")
+async def api_ddos_config(request: Request):
+    data = await request.json(); reputation.update_ddos_config(**data); return {"status":"ok"}
+
+@app.get("/api/security/geo/blocked")
+async def api_geo_blocked():
+    return reputation.get_blocked_countries()
+@app.post("/api/security/geo/blocked")
+async def api_set_geo(request: Request):
+    data = await request.json()
+    import json as _json
+    database.set_setting("blocked_countries", _json.dumps(data.get("countries",[])))
+    return {"status":"ok"}
+@app.post("/api/security/geo/lookup")
+async def api_geo_lookup(request: Request):
+    data = await request.json(); return reputation.lookup_ip(data.get("ip",""))
+
+@app.get("/api/security/av")
+async def api_av_stats():
+    return gateway_av.get_stats()
+@app.post("/api/security/av/update")
+async def api_av_update():
+    ok, msg = gateway_av.update_definitions(); return {"status":"ok" if ok else "error","message":msg}
+@app.post("/api/security/av/scan")
+async def api_av_scan(file: UploadFile = File(...)):
+    data = await file.read()
+    clean, threat = gateway_av.scan_bytes(data, file.filename)
+    return {"clean":clean,"threat":threat,"filename":file.filename}
+
+@app.get("/api/security/dlp/patterns")
+async def api_dlp_patterns():
+    return dlp.get_patterns()
+@app.post("/api/security/dlp/scan")
+async def api_dlp_scan(request: Request):
+    data = await request.json()
+    findings = dlp.scan_content(data.get("content",""), source="api")
+    return {"findings":findings}
+
+@app.post("/api/security/spam/check")
+async def api_spam_check(request: Request):
+    data = await request.json()
+    result = spam_filter.check_email(data.get("content",""))
+    return result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — Network Discovery
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/discovery/scan")
+async def api_scan(request: Request):
+    data = await request.json()
+    ok, msg = network_discovery.scan_network(data.get("subnet","192.168.1.0/24"),
+                                              data.get("type","quick"))
+    return {"status":"ok" if ok else "error","message":msg}
+
+@app.get("/api/discovery/results")
+async def api_disc_results():
+    return network_discovery.get_scan_results()
+@app.get("/api/discovery/arp")
+async def api_arp():
+    return network_discovery.get_arp_table()
+@app.get("/api/discovery/status")
+async def api_disc_status():
+    return {"scanning":network_discovery.is_scanning()}
+
+@app.post("/api/discovery/ping")
+async def api_ping(request: Request):
+    data = await request.json()
+    ok, rtt = network_discovery.ping_host(data.get("ip",""))
+    return {"reachable":ok,"rtt_ms":rtt}
+
+@app.post("/api/discovery/traceroute")
+async def api_traceroute(request: Request):
+    data = await request.json()
+    return {"output": network_discovery.traceroute(data.get("ip",""))}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — Authentication
+# ══════════════════════════════════════════════════════════════════════════════
+
+class UserCreate(BaseModel):
+    username: str; password: str; full_name: str = ""; email: str = ""
+    role: str = "user"; group_name: str = ""; enabled: int = 1
+
+@app.get("/api/auth/users")
+async def api_get_users():
+    return database.get_users()
+@app.post("/api/auth/users")
+async def api_add_user(u: UserCreate):
+    h = mfa.hash_password(u.password)
+    database.add_user(u.username, h, u.full_name, u.email, u.role, u.group_name, u.enabled)
+    return {"status":"ok"}
+@app.delete("/api/auth/users/{uid}")
+async def api_del_user(uid: int):
+    database.delete_user(uid); return {"status":"ok"}
+
+@app.post("/api/auth/users/{uid}/mfa/enable")
+async def api_enable_mfa(uid: int):
+    secret = mfa.enable_mfa_for_user(uid)
+    return {"secret": secret, "qr_uri": mfa.get_qr_code_uri(f"user_{uid}", secret)}
+
+@app.get("/api/auth/groups")
+async def api_get_groups():
+    return database.get_groups()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — Certificates
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/certificates")
+async def api_get_certs():
+    return database.get_certificates()
+@app.delete("/api/certificates/{cid}")
+async def api_del_cert(cid: int): database.delete_certificate(cid); return {"status":"ok"}
+
+@app.post("/api/certificates/generate-self-signed")
+async def api_gen_cert(request: Request):
+    data = await request.json()
+    cn = data.get("cn", "AegisGuard")
+    days = data.get("days", 3650)
+    from core.platform import run
+    import tempfile, os
+    key_f = tempfile.mktemp(suffix=".key")
+    cert_f = tempfile.mktemp(suffix=".crt")
+    ok, _, err = run(["openssl", "req", "-x509", "-newkey", "rsa:2048",
+                      "-keyout", key_f, "-out", cert_f, "-days", str(days),
+                      "-nodes", "-subj", f"/CN={cn}/O=AegisGuard/C=GR"])
+    if not ok:
+        return {"status":"error","message":err}
+    with open(cert_f) as f: cert_pem = f.read()
+    with open(key_f) as f: key_pem = f.read()
+    try: os.unlink(key_f); os.unlink(cert_f)
+    except: pass
+    database.add_certificate(cn, "self-signed", subject=f"CN={cn}",
+                              cert_pem=cert_pem, key_pem=key_pem)
+    return {"status":"ok","cert_pem": cert_pem}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — Proxy Rules
+# ══════════════════════════════════════════════════════════════════════════════
+
+class ProxyRule(BaseModel):
+    name: str; proxy_type: str; action: str; pattern: str = ""
+    content_type: str = ""; max_size: int = 0; enabled: int = 1; description: str = ""
+
+@app.get("/api/proxies")
+async def api_get_proxies():
+    return database.get_proxy_rules()
+@app.post("/api/proxies")
+async def api_add_proxy(r: ProxyRule):
+    database.add_proxy_rule(**r.model_dump()); return {"status":"ok"}
+@app.delete("/api/proxies/{rid}")
+async def api_del_proxy(rid: int): database.delete_proxy_rule(rid); return {"status":"ok"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — Monitor + Logs + Settings
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/monitor/connections")
+async def api_conns():
+    return monitor.get_connections()
+@app.get("/api/monitor/stats")
+async def api_net_stats():
+    n = monitor.get_network_stats()
+    return {**n,"bytes_sent_fmt":monitor.format_bytes(n["bytes_sent"]),"bytes_recv_fmt":monitor.format_bytes(n["bytes_recv"])}
+@app.get("/api/monitor/interfaces")
+async def api_ifaces(): return [{"name":k,**v} for k,v in monitor.get_per_interface_stats().items()]
+
+@app.get("/api/logs")
+async def api_logs(limit:int=100, action:Optional[str]=None, search:Optional[str]=None):
+    return database.get_logs(limit=limit, action_filter=action, search=search)
+@app.get("/api/logs/stats")
+async def api_log_stats():
+    return database.get_log_stats()
+@app.post("/api/logs/clear")
+async def api_clear_logs():
+    database.clear_logs(); return {"status":"ok"}
+
+@app.get("/api/settings")
+async def api_get_settings():
+    return database.get_all_settings()
+@app.post("/api/settings")
+async def api_save_settings(request: Request):
+    data = await request.json()
+    for k,v in data.items(): database.set_setting(k,v)
+    return {"status":"ok"}
+@app.post("/api/settings/sync-firewall")
+async def api_sync_fw():
+    r = rules_engine.sync_all_rules()
+    return {"synced":sum(1 for _,ok,_ in r if ok),"total":len(r)}
+
+# Log servers
+class LogServer(BaseModel):
+    name:str; host:str; port:int=514; protocol:str="UDP"; enabled:int=1
+
+@app.get("/api/logging/servers")
+async def api_log_servers():
+    return database.get_log_servers()
+@app.post("/api/logging/servers")
+async def api_add_log_server(s: LogServer):
+    database.add_log_server(**s.model_dump()); return {"status":"ok"}
+@app.delete("/api/logging/servers/{sid}")
+async def api_del_log_server(sid:int): database.delete_log_server(sid); return {"status":"ok"}
+
+# Blocked sites convenience
+@app.post("/api/blocked/ip")
+async def api_block_ip(request: Request):
+    data = await request.json(); ip = data.get("ip","").strip()
+    if not ip: raise HTTPException(400)
+    database.add_rule(f"Block-IP:{ip}","BLOCK","BOTH","ANY","",ip,"","",1,10)
+    return {"status":"ok"}
+@app.delete("/api/blocked/ip/{rid}")
+async def api_unblock_ip(rid:int):
+    rule = next((r for r in database.get_rules() if r["id"]==rid),None)
+    if rule: rules_engine.remove_rule_from_system(rule); database.delete_rule(rid)
+    return {"status":"ok"}
+@app.post("/api/blocked/domain")
+async def api_block_domain(request: Request):
+    data = await request.json(); domain = data.get("domain","").strip()
+    if not domain: raise HTTPException(400)
+    database.add_web_filter(domain,"Custom","BLOCK"); return {"status":"ok"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — SSL VPN
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/vpn/ssl/config")
+async def api_ssl_config():
+    return database.get_ssl_vpn_config()
+
+@app.post("/api/vpn/ssl/config")
+async def api_save_ssl_config(request: Request):
+    data = await request.json()
+    database.save_ssl_vpn_config(**data)
+    return {"status": "ok"}
+
+@app.post("/api/vpn/ssl/setup")
+async def api_ssl_setup(request: Request):
+    data = await request.json()
+    port = data.get("port", 1194)
+    proto = data.get("proto", "udp")
+    subnet = data.get("server_subnet", "10.8.0.0")
+    dns1 = data.get("dns1", "1.1.1.1")
+    ok, msg = ssl_vpn.quick_setup(port=port, proto=proto, server_subnet=subnet, dns1=dns1)
+    return {"status": "ok" if ok else "error", "message": msg}
+
+@app.post("/api/vpn/ssl/start")
+async def api_ssl_start():
+    ok, msg = ssl_vpn.start_server()
+    return {"status": "ok" if ok else "error", "message": msg}
+
+@app.post("/api/vpn/ssl/stop")
+async def api_ssl_stop():
+    ok, msg = ssl_vpn.stop_server()
+    return {"status": "ok" if ok else "error", "message": msg}
+
+@app.get("/api/vpn/ssl/status")
+async def api_ssl_status():
+    return {"status": ssl_vpn.get_server_status(), "initialized": ssl_vpn.is_pki_initialized()}
+
+@app.get("/api/vpn/ssl/clients")
+async def api_ssl_clients():
+    return ssl_vpn.get_connected_clients()
+
+@app.get("/api/vpn/ssl/server-config")
+async def api_ssl_server_conf():
+    ssl_vpn.write_server_config()
+    cfg = database.get_ssl_vpn_config()
+    conf = ssl_vpn.write_server_config()
+    try:
+        with open(ssl_vpn.SERVER_CONF) as f:
+            content = f.read()
+    except Exception:
+        content = "# Config file not yet generated. Run 'Start Server' first."
+    return StreamingResponse(io.StringIO(content), media_type="text/plain",
+                             headers={"Content-Disposition": "attachment; filename=aegisguard-ssl-vpn.conf"})
+
+@app.get("/api/vpn/users/{uid}/config")
+async def api_vpn_user_config(uid: int):
+    content = ssl_vpn.get_user_config_content(uid)
+    if not content:
+        raise HTTPException(404, "User or config not found")
+    conn = database.get_connection()
+    row = conn.execute("SELECT username FROM vpn_users WHERE id=?", (uid,)).fetchone()
+    conn.close()
+    username = row["username"] if row else f"user{uid}"
+    return StreamingResponse(io.StringIO(content), media_type="text/plain",
+                             headers={"Content-Disposition": f"attachment; filename={username}.ovpn"})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — VPN Users
+# ══════════════════════════════════════════════════════════════════════════════
+
+class VPNUserCreate(BaseModel):
+    username: str
+    password: str
+    full_name: str = ""
+    email: str = ""
+    group_name: str = "vpn-users"
+    tunnel_ip: str = ""
+    max_connections: int = 1
+    bandwidth_limit: int = 0
+    allowed_networks: str = ""
+    expires_at: str = ""
+
+@app.get("/api/vpn/users")
+async def api_get_vpn_users():
+    return database.get_vpn_users()
+
+@app.post("/api/vpn/users")
+async def api_add_vpn_user(u: VPNUserCreate):
+    h = hash_password(u.password)
+    database.add_vpn_user(
+        username=u.username, password_hash=h, full_name=u.full_name,
+        email=u.email, group_name=u.group_name, tunnel_ip=u.tunnel_ip,
+        max_connections=u.max_connections, bandwidth_limit=u.bandwidth_limit,
+        allowed_networks=u.allowed_networks, expires_at=u.expires_at
+    )
+    # Auto-generate .ovpn config
+    user = database.get_vpn_user_by_username(u.username)
+    if user:
+        ssl_vpn.generate_user_config(user)
+    return {"status": "ok"}
+
+@app.delete("/api/vpn/users/{uid}")
+async def api_del_vpn_user(uid: int):
+    database.delete_vpn_user(uid)
+    return {"status": "ok"}
+
+@app.post("/api/vpn/users/{uid}/toggle")
+async def api_toggle_vpn_user(uid: int):
+    conn = database.get_connection()
+    row = conn.execute("SELECT enabled FROM vpn_users WHERE id=?", (uid,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(404)
+    database.update_vpn_user(uid, enabled=0 if row["enabled"] else 1)
+    return {"status": "ok"}
+
+@app.put("/api/vpn/users/{uid}/password")
+async def api_change_vpn_user_password(uid: int, request: Request):
+    data = await request.json()
+    h = hash_password(data.get("password", ""))
+    database.update_vpn_user(uid, password_hash=h)
+    return {"status": "ok"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — Branch Office VPN (BOV)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class BOVCreate(BaseModel):
+    name: str
+    tunnel_type: str
+    remote_gateway: str
+    remote_subnets: str
+    local_gateway: str = ""
+    local_subnets: str = ""
+    description: str = ""
+    enabled: int = 1
+    # IPSec
+    psk: str = ""
+    ike_version: str = "IKEv2"
+    ike_cipher: str = "AES256"
+    ike_hash: str = "SHA256"
+    ike_dh: str = "DH14"
+    ike_lifetime: int = 28800
+    esp_cipher: str = "AES256"
+    esp_hash: str = "SHA256"
+    esp_lifetime: int = 3600
+    pfs_group: str = "DH14"
+    dpd_enabled: int = 1
+    dpd_interval: int = 30
+    dpd_timeout: int = 120
+    nat_traversal: int = 1
+    aggressive_mode: int = 0
+    l2tp_local_ip: str = ""
+    l2tp_remote_ip: str = ""
+    # WireGuard
+    wg_private_key: str = ""
+    wg_public_key: str = ""
+    wg_peer_pubkey: str = ""
+    wg_preshared_key: str = ""
+    wg_port: int = 51820
+    wg_keepalive: int = 25
+    # SSL
+    ssl_port: int = 1194
+    ssl_protocol: str = "udp"
+    ssl_cipher: str = "AES-256-GCM"
+    ssl_ca_cert: str = ""
+    ssl_cert: str = ""
+    ssl_key: str = ""
+    ssl_ta_key: str = ""
+
+@app.get("/api/vpn/bov")
+async def api_get_bov():
+    return database.get_bov_tunnels()
+
+@app.post("/api/vpn/bov")
+async def api_add_bov(t: BOVCreate):
+    database.add_bov_tunnel(
+        name=t.name, tunnel_type=t.tunnel_type,
+        remote_gateway=t.remote_gateway, remote_subnets=t.remote_subnets,
+        local_subnets=t.local_subnets, local_gateway=t.local_gateway,
+        psk=t.psk, ike_version=t.ike_version, ike_cipher=t.ike_cipher,
+        ike_hash=t.ike_hash, ike_dh=t.ike_dh, ike_lifetime=t.ike_lifetime,
+        esp_cipher=t.esp_cipher, esp_hash=t.esp_hash, esp_lifetime=t.esp_lifetime,
+        pfs_group=t.pfs_group, dpd_enabled=t.dpd_enabled, dpd_interval=t.dpd_interval,
+        dpd_timeout=t.dpd_timeout, nat_traversal=t.nat_traversal,
+        aggressive_mode=t.aggressive_mode, l2tp_local_ip=t.l2tp_local_ip,
+        l2tp_remote_ip=t.l2tp_remote_ip, ssl_port=t.ssl_port, ssl_protocol=t.ssl_protocol,
+        ssl_cipher=t.ssl_cipher, ssl_ca_cert=t.ssl_ca_cert, ssl_cert=t.ssl_cert,
+        ssl_key=t.ssl_key, ssl_ta_key=t.ssl_ta_key, wg_private_key=t.wg_private_key,
+        wg_public_key=t.wg_public_key, wg_peer_pubkey=t.wg_peer_pubkey,
+        wg_preshared_key=t.wg_preshared_key, wg_port=t.wg_port,
+        wg_keepalive=t.wg_keepalive, enabled=t.enabled, description=t.description
+    )
+    return {"status": "ok"}
+
+@app.delete("/api/vpn/bov/{tid}")
+async def api_del_bov(tid: int):
+    tunnel = next((t for t in database.get_bov_tunnels() if t["id"] == tid), None)
+    if tunnel:
+        bov_manager.disconnect_tunnel(tunnel)
+    database.delete_bov_tunnel(tid)
+    return {"status": "ok"}
+
+@app.post("/api/vpn/bov/{tid}/connect")
+async def api_bov_connect(tid: int):
+    tunnel = next((t for t in database.get_bov_tunnels() if t["id"] == tid), None)
+    if not tunnel:
+        raise HTTPException(404)
+    ok, msg = bov_manager.connect_tunnel(tunnel)
+    return {"status": "ok" if ok else "error", "message": msg}
+
+@app.post("/api/vpn/bov/{tid}/disconnect")
+async def api_bov_disconnect(tid: int):
+    tunnel = next((t for t in database.get_bov_tunnels() if t["id"] == tid), None)
+    if not tunnel:
+        raise HTTPException(404)
+    ok, msg = bov_manager.disconnect_tunnel(tunnel)
+    return {"status": "ok" if ok else "error", "message": msg}
+
+@app.get("/api/vpn/bov/{tid}/peer-config")
+async def api_bov_peer_config(tid: int):
+    tunnel = next((t for t in database.get_bov_tunnels() if t["id"] == tid), None)
+    if not tunnel:
+        raise HTTPException(404)
+    conf = bov_manager.export_peer_config(tunnel)
+    return StreamingResponse(
+        io.StringIO(conf), media_type="text/plain",
+        headers={"Content-Disposition": f"attachment; filename=bov-{tunnel['name']}-peer.conf"}
+    )
+
+@app.post("/api/vpn/bov/apply-ipsec")
+async def api_apply_ipsec():
+    ok, msg = bov_manager.apply_ipsec_tunnels()
+    return {"status": "ok" if ok else "error", "message": msg}
+
+@app.get("/api/vpn/bov/ipsec-status")
+async def api_bov_ipsec_status():
+    return {"output": bov_manager.get_ipsec_status()}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — Multi-WAN
+# ══════════════════════════════════════════════════════════════════════════════
+
+class WanLinkCreate(BaseModel):
+    name: str; interface: str; gateway: str
+    weight: int = 1; priority: int = 1; mode: str = "failover"
+    check_ip: str = "8.8.8.8"; check_interval: int = 10
+    check_timeout: int = 3; check_failures: int = 3
+    enabled: int = 1; description: str = ""
+
+@app.get("/api/network/wan-links")
+async def api_get_wan_links():
+    return multiwan_manager.get_status()
+
+@app.post("/api/network/wan-links")
+async def api_add_wan_link(link: WanLinkCreate):
+    database.add_wan_link(**link.model_dump())
+    return {"status": "ok"}
+
+@app.put("/api/network/wan-links/{lid}")
+async def api_update_wan_link(lid: int, link: WanLinkCreate):
+    database.update_wan_link(lid, **link.model_dump())
+    return {"status": "ok"}
+
+@app.delete("/api/network/wan-links/{lid}")
+async def api_del_wan_link(lid: int):
+    database.delete_wan_link(lid)
+    return {"status": "ok"}
+
+@app.post("/api/network/wan-links/apply")
+async def api_apply_multiwan():
+    ok, msg = multiwan_manager.apply_routing()
+    return {"status": "ok" if ok else "error", "message": msg}
+
+@app.post("/api/network/wan-links/{lid}/failover")
+async def api_force_failover(lid: int):
+    ok, msg = multiwan_manager.failover_to(lid)
+    return {"status": "ok" if ok else "error", "message": msg}
+
+@app.get("/api/network/wan-links/status")
+async def api_wan_status():
+    return multiwan_manager.get_status()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — High Availability
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/ha/config")
+async def api_get_ha():
+    return database.get_ha_config()
+
+@app.post("/api/ha/config")
+async def api_save_ha(request: Request):
+    data = await request.json()
+    database.save_ha_config(**data)
+    return {"status": "ok"}
+
+@app.post("/api/ha/apply")
+async def api_apply_ha():
+    ok, msg = ha_manager.apply_ha()
+    return {"status": "ok" if ok else "error", "message": msg}
+
+@app.post("/api/ha/stop")
+async def api_stop_ha():
+    ok, msg = ha_manager.stop_ha()
+    return {"status": "ok" if ok else "error", "message": msg}
+
+@app.get("/api/ha/status")
+async def api_ha_status():
+    return ha_manager.get_ha_status()
+
+@app.post("/api/ha/sync")
+async def api_ha_sync():
+    ok, msg = ha_manager.sync_now()
+    return {"status": "ok" if ok else "error", "message": msg}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("web.api:app", host="0.0.0.0", port=8080, reload=False)

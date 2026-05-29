@@ -1,0 +1,23 @@
+[Unit]
+Description=AegisGuard Network Security Suite
+Documentation=https://github.com/aegisguard
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/aegisguard
+ExecStart=/usr/bin/python3 -m uvicorn web.api:app --host 0.0.0.0 --port 8080 --workers 1
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aegisguard
+
+# Security
+NoNewPrivileges=false
+PrivateTmp=false
+
+[Install]
+WantedBy=multi-user.target
