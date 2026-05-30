@@ -30,13 +30,22 @@ network:
 EOF
 netplan apply 2>/dev/null || true
 
-# Firewall: WAN locked, LAN open
+# Firewall: Default DROP policy, LAN open, WAN blocked except VPN ports
 iptables -F INPUT
+iptables -P INPUT DROP
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
 iptables -A INPUT -i $LAN_IF -j ACCEPT
-iptables -A INPUT -i $WAN_IF -j DROP
-iptables -P INPUT DROP
+
+# VPN ports on WAN
+iptables -A INPUT -i $WAN_IF -p udp --dport 1194 -j ACCEPT   # OpenVPN UDP
+iptables -A INPUT -i $WAN_IF -p tcp --dport 1194 -j ACCEPT   # OpenVPN TCP
+iptables -A INPUT -i $WAN_IF -p udp --dport 51820 -j ACCEPT  # WireGuard
+iptables -A INPUT -i $WAN_IF -p udp --dport 500 -j ACCEPT    # IPSec IKE
+iptables -A INPUT -i $WAN_IF -p udp --dport 4500 -j ACCEPT   # IPSec NAT-T
+iptables -A INPUT -i $WAN_IF -p 50 -j ACCEPT                 # ESP (IPSec)
+iptables -A INPUT -i $WAN_IF -p udp --dport 1701 -j ACCEPT   # L2TP
+# Additional custom rules inserted by the rules engine go above this line
 netfilter-persistent save 2>/dev/null || true
 
 # Update DB with interface names
