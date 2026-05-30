@@ -291,14 +291,27 @@ def generate_user_config(vpn_user, server_ip="auto"):
         return None, "SSL VPN not configured"
 
     if server_ip == "auto":
-        # Try to detect public IP
-        try:
-            import urllib.request
-            server_ip = urllib.request.urlopen(
-                "https://api.ipify.org", timeout=5
-            ).read().decode().strip()
-        except Exception:
-            server_ip = "YOUR_SERVER_IP"
+        # Use WAN IP from settings, fallback to detecting public IP
+        server_ip = database.get_setting("wan_ip", "")
+        if not server_ip:
+            try:
+                import urllib.request
+                server_ip = urllib.request.urlopen(
+                    "https://api.ipify.org", timeout=5
+                ).read().decode().strip()
+            except Exception:
+                pass
+        if not server_ip:
+            # Fallback: use eth0 IP
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ["hostname", "-I"], capture_output=True, text=True, timeout=3
+                )
+                ips = result.stdout.strip().split()
+                server_ip = ips[0] if ips else "YOUR_SERVER_IP"
+            except Exception:
+                server_ip = "YOUR_SERVER_IP"
 
     port = cfg.get("port", 1194)
     proto = cfg.get("protocol", "udp")
@@ -310,6 +323,7 @@ def generate_user_config(vpn_user, server_ip="auto"):
 
     conf = f"""# AegisGuard SSL VPN - Client Config
 # User: {vpn_user['username']}
+# Server: {server_ip}:{port}
 # Generated: {datetime.now().isoformat()}
 
 client
@@ -321,9 +335,8 @@ nobind
 persist-key
 persist-tun
 
-# Auth
+# Auth — enter username and password when prompted
 auth-user-pass
-# Enter your username and password when prompted
 
 # PKI (inline)
 {_block('ca', cfg.get('ca_cert',''))}
@@ -334,9 +347,7 @@ key-direction 1
 cipher {cipher}
 auth {auth_alg}
 tls-version-min {cfg.get('tls_version','1.2')}
-tls-cipher TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384
 remote-cert-tls server
-verify-x509-name server name
 
 # Settings
 {'compress lz4-v2' if cfg.get('compress',1) else ''}
