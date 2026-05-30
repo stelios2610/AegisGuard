@@ -126,19 +126,27 @@ systemctl enable dnsmasq
 systemctl restart dnsmasq
 log "dnsmasq DHCP server started on ${LAN_IF} (10.0.0.100-200)"
 
-# ── 8. Firewall: Web UI ONLY from LAN, block from WAN ────────────────────────
-# Allow web UI only from LAN interface
-iptables -A INPUT -i "${LAN_IF}" -p tcp --dport 8080 -j ACCEPT
-iptables -A INPUT -i "${LAN_IF}" -p tcp --dport 443 -j ACCEPT
+# ── 8. Firewall: EVERYTHING only from LAN — WAN fully locked ─────────────────
+# Flush existing INPUT rules
+iptables -F INPUT
+
 # Allow loopback
 iptables -A INPUT -i lo -j ACCEPT
-# Allow established connections
+
+# Allow established/related (return traffic from internet)
 iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-# Block ALL inbound access on WAN (web UI, SSH, everything)
-iptables -A INPUT -i "${WAN_IF}" -p tcp --dport 8080 -j DROP
-iptables -A INPUT -i "${WAN_IF}" -p tcp --dport 443 -j DROP
-iptables -A INPUT -i "${WAN_IF}" -p tcp --dport 22 -j DROP
-log "WAN interface ${WAN_IF} locked down — web UI accessible only from LAN"
+
+# Allow EVERYTHING from LAN interface (web UI, SSH, DHCP, etc.)
+iptables -A INPUT -i "${LAN_IF}" -j ACCEPT
+
+# Block ALL inbound from WAN — no exceptions
+iptables -A INPUT -i "${WAN_IF}" -j DROP
+
+# Default policy: drop anything else
+iptables -P INPUT DROP
+
+iptables-save > /etc/iptables/rules.v4
+log "Firewall: WAN fully locked. ALL access via LAN (${LAN_IF}) only."
 
 # ── 9. Start AegisGuard ───────────────────────────────────────────────────────
 systemctl enable aegisguard
