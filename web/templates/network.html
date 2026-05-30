@@ -14,7 +14,7 @@
 </div>
 
 <!-- ══════════════════ INTERFACES TAB ══════════════════ -->
-<div id="tab-interfaces" style="display:none">
+<div id="tab-interfaces" {% if active_tab != 'interfaces' %}style="display:none"{% endif %}>
   <div class="card">
     <div class="card-header">
       <div>
@@ -88,7 +88,7 @@
 </div>
 
 <!-- ══════════════════ VLANs TAB ══════════════════ -->
-<div id="tab-vlans" style="display:none">
+<div id="tab-vlans" {% if active_tab != 'vlans' %}style="display:none"{% endif %}>
   <div class="card">
     <div class="card-header">
       <div>
@@ -134,7 +134,7 @@
 </div>
 
 <!-- ══════════════════ DMZ TAB ══════════════════ -->
-<div id="tab-dmz" style="display:none">
+<div id="tab-dmz" {% if active_tab != 'dmz' %}style="display:none"{% endif %}>
   <div class="alert alert-info" style="margin-bottom:16px">
     The DMZ (De-Militarized Zone) is an isolated network segment for public-facing servers. Traffic between DMZ and LAN is strictly controlled.
   </div>
@@ -176,7 +176,7 @@
 </div>
 
 <!-- ══════════════════ ROUTES TAB ══════════════════ -->
-<div id="tab-routes" style="display:none">
+<div id="tab-routes" {% if active_tab != 'routes' %}style="display:none"{% endif %}>
   <div class="card">
     <div class="card-header">
       <div>
@@ -236,7 +236,7 @@
 </div>
 
 <!-- ══════════════════ DHCP TAB ══════════════════ -->
-<div id="tab-dhcp" style="display:none">
+<div id="tab-dhcp" {% if active_tab != 'dhcp' %}style="display:none"{% endif %}>
   <div class="card" style="margin-bottom:16px">
     <div class="card-header">
       <div class="card-title">DHCP Server Configuration</div>
@@ -299,7 +299,7 @@
 </div>
 
 <!-- ══════════════════ DNS TAB ══════════════════ -->
-<div id="tab-dns" style="display:none">
+<div id="tab-dns" {% if active_tab != 'dns' %}style="display:none"{% endif %}>
   <div class="grid grid-2">
     <div class="card">
       <div class="card-header">
@@ -363,7 +363,7 @@
 </div>
 
 <!-- ══════════════════ NAT TAB ══════════════════ -->
-<div id="tab-nat" style="display:none">
+<div id="tab-nat" {% if active_tab != 'nat' %}style="display:none"{% endif %}>
   <div class="alert alert-info" style="margin-bottom:16px">
     NAT rules are processed before the firewall. <strong>DNAT</strong> = port forward inbound traffic.
     <strong>SNAT/PAT</strong> = masquerade outbound. <strong>Static NAT (1-to-1)</strong> = bidirectional mapping of one public IP to one private IP — all ports, all protocols.
@@ -442,7 +442,7 @@
 </div>
 
 <!-- ══════════════════ QoS TAB ══════════════════ -->
-<div id="tab-qos" style="display:none">
+<div id="tab-qos" {% if active_tab != 'qos' %}style="display:none"{% endif %}>
   <div class="alert alert-info" style="margin-bottom:16px">
     Quality of Service rules classify and prioritize traffic. Rules are evaluated top-down. Higher priority classes get bandwidth preference during congestion.
   </div>
@@ -490,7 +490,7 @@
 
 
 <!-- ══════════════════ MULTI-WAN TAB ══════════════════ -->
-<div id="tab-multiwan" style="display:none">
+<div id="tab-multiwan" {% if active_tab != 'multiwan' %}style="display:none"{% endif %}>
   <div class="alert alert-info" style="margin-bottom:16px">
     <strong>Multi-WAN</strong> allows multiple internet connections simultaneously.
     <strong>Failover</strong>: traffic uses the highest priority link; if it goes down, automatically switches to the next.
