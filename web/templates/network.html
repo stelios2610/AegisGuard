@@ -1131,21 +1131,23 @@ const TABS = ['interfaces','vlans','dmz','routes','dhcp','dns','nat','qos','mult
 
 function switchTab(name) {
   TABS.forEach(t => {
-    document.getElementById('tab-' + t).style.display = t === name ? '' : 'none';
+    const el = document.getElementById('tab-' + t);
+    if (el) el.style.display = (t === name) ? 'block' : 'none';
     const btn = document.getElementById('tab-btn-' + t);
     if (btn) {
-      btn.style.background = t === name ? 'var(--accent)' : '';
-      btn.style.color = t === name ? '#fff' : '';
+      btn.style.background = (t === name) ? 'var(--accent)' : '';
+      btn.style.color = (t === name) ? '#fff' : '';
     }
   });
-  history.replaceState(null, '', '/network?tab=' + name);
+  try { history.replaceState(null, '', '/network?tab=' + name); } catch(e) {}
+  if (name === 'multiwan') { try { refreshWANStatus(); } catch(e) {} }
 }
 
 // Auto-switch to tab from URL query param
-(function() {
+document.addEventListener('DOMContentLoaded', function() {
   const p = new URLSearchParams(window.location.search);
   switchTab(p.get('tab') || 'interfaces');
-})();
+});
 
 // ── IP Mode ──
 function onIPModeChange() {
@@ -1746,13 +1748,6 @@ async function refreshActiveRoute() {
   const pre = document.getElementById('mwan-active-route');
   pre.textContent = (typeof links === 'string' ? links : JSON.stringify(links, null, 2)) || 'No route info';
 }
-
-// Auto-load MultiWAN data when on that tab
-const _origSwitch = switchTab;
-window.switchTab = function(name) {
-  _origSwitch(name);
-  if (name === 'multiwan') refreshWANStatus();
-};
 
 // Backdrop close for all modals
 ['add-iface-modal','add-vlan-modal','add-dmz-modal','add-route-modal',
