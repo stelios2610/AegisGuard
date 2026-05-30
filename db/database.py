@@ -616,9 +616,10 @@ def _seed_default_rules():
         ("Allow Loopback",          "ALLOW", "BOTH", "ANY",  "127.0.0.0/8", "",  "", "", 1,  "Loopback interface traffic"),
         ("Allow Established",       "ALLOW", "IN",   "TCP",  "", "",  "", "", 2,  "Allow established/related TCP sessions"),
         # ── Priority 10-30: Management access ────────────────────────────────
-        ("Allow SSH from LAN",      "ALLOW", "IN",   "TCP",  "192.168.0.0/16", "", "",  "22", 10, "SSH management from LAN"),
-        ("Allow Web UI",            "ALLOW", "IN",   "TCP",  "192.168.0.0/16", "", "",  "8080", 11, "AegisGuard web interface from LAN"),
-        ("Allow HTTPS UI",          "ALLOW", "IN",   "TCP",  "192.168.0.0/16", "", "",  "443", 12, "HTTPS web UI from LAN"),
+        ("Allow SSH from LAN",      "ALLOW", "IN",   "TCP",  "10.0.0.0/24", "", "",  "22", 10, "SSH management from LAN only"),
+        ("Allow Web UI from LAN",   "ALLOW", "IN",   "TCP",  "10.0.0.0/24", "", "",  "8080", 11, "AegisGuard web UI from LAN only"),
+        ("Block Web UI from WAN",   "BLOCK", "IN",   "TCP",  "", "", "",  "8080", 12, "Block web UI from WAN"),
+        ("Block SSH from WAN",      "BLOCK", "IN",   "TCP",  "", "", "",  "22", 13, "Block SSH from WAN"),
         # ── Priority 20-30: Outbound essential services ───────────────────────
         ("Allow DNS Out",           "ALLOW", "OUT",  "UDP",  "", "", "", "53",  20, "DNS resolution"),
         ("Allow DNS TCP Out",       "ALLOW", "OUT",  "TCP",  "", "", "", "53",  21, "DNS over TCP"),
