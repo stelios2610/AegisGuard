@@ -1747,26 +1747,19 @@ async function refreshActiveRoute() {
   pre.textContent = (typeof links === 'string' ? links : JSON.stringify(links, null, 2)) || 'No route info';
 }
 
-// Auto-refresh WAN status when on MultiWAN tab
-const _origSwitchTab = switchTab;
-</script>
-
-<script>
-// Override switchTab to auto-load MultiWAN data
-const _baseSwitchTab = window.switchTab;
+// Auto-load MultiWAN data when on that tab
+const _origSwitch = switchTab;
 window.switchTab = function(name) {
-  _baseSwitchTab(name);
+  _origSwitch(name);
   if (name === 'multiwan') refreshWANStatus();
 };
-</script>
 
-<!-- Backdrop close -->
-<script>
+// Backdrop close for all modals
 ['add-iface-modal','add-vlan-modal','add-dmz-modal','add-route-modal',
- 'add-dhcp-modal','add-lease-modal','add-static-nat-modal','add-nat-modal','add-qos-modal'].forEach(id => {
-  document.getElementById(id)?.addEventListener('click', e => {
-    if (e.target === document.getElementById(id)) closeModal(id);
-  });
+ 'add-dhcp-modal','add-lease-modal','add-static-nat-modal','add-nat-modal','add-qos-modal',
+ 'add-wan-modal'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('click', e => { if (e.target === el) closeModal(id); });
 });
 </script>
 {% endblock %}
