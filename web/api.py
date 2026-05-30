@@ -65,6 +65,26 @@ app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), na
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 
+def _auto_vpn_rules(vpn_name: str, protocol: str, port: str):
+    """Auto-create firewall ALLOW rules for a VPN service."""
+    existing = [r["name"] for r in database.get_rules()]
+    rule_name = f"Allow {vpn_name} ({protocol}/{port})"
+    if rule_name not in existing:
+        database.add_rule(
+            name=rule_name,
+            action="ALLOW", direction="IN",
+            protocol=protocol,
+            remote_port=port,
+            enabled=1, priority=50,
+            description=f"Auto-created by {vpn_name} setup"
+        )
+        # Apply to system immediately
+        rules = database.get_rules()
+        new_rule = next((r for r in rules if r["name"] == rule_name), None)
+        if new_rule:
+            rules_engine.sync_rule_to_system(new_rule)
+
+
 def _ctx(request, **kw):
     stats = database.get_log_stats()
     alerts = ips.get_alerts(5)
@@ -1032,6 +1052,8 @@ async def api_ssl_setup(request: Request):
     subnet = data.get("server_subnet", "10.8.0.0")
     dns1 = data.get("dns1", "1.1.1.1")
     ok, msg = ssl_vpn.quick_setup(port=port, proto=proto, server_subnet=subnet, dns1=dns1)
+    if ok:
+        _auto_vpn_rules("SSL-VPN", proto.upper(), str(port))
     return {"status": "ok" if ok else "error", "message": msg}
 
 @app.post("/api/vpn/ssl/start")
@@ -1189,6 +1211,14 @@ async def api_get_bov():
 
 @app.post("/api/vpn/bov")
 async def api_add_bov(t: BOVCreate):
+    # Auto-create firewall rules based on tunnel type
+    if t.tunnel_type == "WireGuard":
+        _auto_vpn_rules("WireGuard-BOV", "UDP", str(t.wg_port or 51820))
+    elif t.tunnel_type in ("IKEv2", "IKEv1", "L2TP-IPSec"):
+        _auto_vpn_rules("IPSec-IKE", "UDP", "500")
+        _auto_vpn_rules("IPSec-NAT-T", "UDP", "4500")
+    elif t.tunnel_type == "SSL-OpenVPN":
+        _auto_vpn_rules("SSL-BOV", "UDP", str(t.ssl_port or 1194))
     database.add_bov_tunnel(
         name=t.name, tunnel_type=t.tunnel_type,
         remote_gateway=t.remote_gateway, remote_subnets=t.remote_subnets,

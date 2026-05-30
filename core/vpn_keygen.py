@@ -88,8 +88,7 @@ def generate_openvpn_pki(output_dir, server_name="server", client_name="client",
     steps.append(("Server CSR", ok, err))
     ok, _, err = run(["openssl", "x509", "-req", "-days", str(days),
                       "-in", server_csr, "-CA", ca_cert, "-CAkey", ca_key,
-                      "-CAcreateserial", "-out", server_cert,
-                      "-extensions", "server", "-extfile", "/dev/null"])
+                      "-CAcreateserial", "-out", server_cert])
     steps.append(("Server cert", ok, err))
 
     # Client key + cert
