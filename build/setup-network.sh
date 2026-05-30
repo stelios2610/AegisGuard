@@ -2,11 +2,10 @@
 # AegisGuard Network Setup
 # Runs automatically after install to configure LAN/WAN
 
-set -e
 cd /opt/aegisguard
 
 WAN_IF=$(ip route | grep default | awk '{print $5}' | head -1)
-LAN_IF=$(ip link | grep -v $WAN_IF | grep -v lo | grep 'state UP\|state DOWN' | awk '{print $2}' | tr -d ':' | head -1)
+LAN_IF=$(ip link | grep -v "$WAN_IF" | grep -v lo | grep 'state UP\|state DOWN' | awk '{print $2}' | tr -d ':' | head -1)
 
 # Fallback defaults
 [ -z "$WAN_IF" ] && WAN_IF="eth0"
@@ -15,9 +14,9 @@ LAN_IF=$(ip link | grep -v $WAN_IF | grep -v lo | grep 'state UP\|state DOWN' | 
 echo "[→] WAN: $WAN_IF | LAN: $LAN_IF"
 
 # Configure LAN IP
-ip addr flush dev $LAN_IF 2>/dev/null || true
-ip addr add 10.0.0.1/24 dev $LAN_IF
-ip link set $LAN_IF up
+ip addr flush dev "$LAN_IF" 2>/dev/null || true
+ip addr add 10.0.0.1/24 dev "$LAN_IF" 2>/dev/null || true
+ip link set "$LAN_IF" up 2>/dev/null || true
 
 # Permanent netplan
 cat > /etc/netplan/60-aegisguard-lan.yaml << EOF
@@ -44,23 +43,27 @@ iptables -P OUTPUT ACCEPT
 # INPUT: loopback + established + LAN full access
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-iptables -A INPUT -i $LAN_IF -j ACCEPT
+iptables -A INPUT -i "$LAN_IF" -j ACCEPT
 
 # INPUT: VPN ports on WAN
-iptables -A INPUT -i $WAN_IF -p udp --dport 1194 -j ACCEPT
-iptables -A INPUT -i $WAN_IF -p tcp --dport 1194 -j ACCEPT
-iptables -A INPUT -i $WAN_IF -p udp --dport 51820 -j ACCEPT
-iptables -A INPUT -i $WAN_IF -p udp --dport 500 -j ACCEPT
-iptables -A INPUT -i $WAN_IF -p udp --dport 4500 -j ACCEPT
-iptables -A INPUT -i $WAN_IF -p 50 -j ACCEPT
-iptables -A INPUT -i $WAN_IF -p udp --dport 1701 -j ACCEPT
+iptables -A INPUT -i "$WAN_IF" -p udp --dport 1194 -j ACCEPT
+iptables -A INPUT -i "$WAN_IF" -p tcp --dport 1194 -j ACCEPT
+iptables -A INPUT -i "$WAN_IF" -p udp --dport 51820 -j ACCEPT
+iptables -A INPUT -i "$WAN_IF" -p udp --dport 500 -j ACCEPT
+iptables -A INPUT -i "$WAN_IF" -p udp --dport 4500 -j ACCEPT
+iptables -A INPUT -i "$WAN_IF" -p 50 -j ACCEPT
+iptables -A INPUT -i "$WAN_IF" -p udp --dport 1701 -j ACCEPT
 
 # FORWARD: LAN → WAN + established return traffic
-iptables -A FORWARD -i $LAN_IF -o $WAN_IF -j ACCEPT
+iptables -A FORWARD -i "$LAN_IF" -o "$WAN_IF" -j ACCEPT
 iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
 
 # NAT: masquerade LAN traffic going out WAN
-iptables -t nat -A POSTROUTING -o $WAN_IF -j MASQUERADE
+iptables -t nat -A POSTROUTING -o "$WAN_IF" -j MASQUERADE
+
+# Enable IP forwarding
+echo 1 > /proc/sys/net/ipv4/ip_forward
+sed -i 's/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/' /etc/sysctl.conf 2>/dev/null || true
 
 netfilter-persistent save 2>/dev/null || true
 
@@ -92,19 +95,15 @@ no-resolv
 server=1.1.1.1
 server=8.8.8.8
 EOF
-systemctl enable dnsmasq
-systemctl restart dnsmasq
+systemctl enable dnsmasq 2>/dev/null || true
+systemctl restart dnsmasq 2>/dev/null || true
 
-# Enable IP forwarding
-echo 1 > /proc/sys/net/ipv4/ip_forward
-sed -i 's/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/' /etc/sysctl.conf 2>/dev/null || true
-
-systemctl restart aegisguard
+systemctl restart aegisguard 2>/dev/null || true
 
 echo ""
 echo "================================================"
 echo " Setup complete!"
 echo " LAN: $LAN_IF = 10.0.0.1/24"
-echo " WAN: $WAN_IF = locked"
+echo " WAN: $WAN_IF = locked (VPN ports open)"
 echo " Web UI: http://10.0.0.1:8080"
 echo "================================================"
