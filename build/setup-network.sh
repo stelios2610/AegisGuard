@@ -30,22 +30,38 @@ network:
 EOF
 netplan apply 2>/dev/null || true
 
-# Firewall: Default DROP policy, LAN open, WAN blocked except VPN ports
-iptables -F INPUT
+# Firewall: flush everything and rebuild from scratch (safe to re-run)
+iptables -F
+iptables -F -t nat
+iptables -F -t mangle
+iptables -X 2>/dev/null || true
+
+# Default policies
 iptables -P INPUT DROP
+iptables -P FORWARD ACCEPT
+iptables -P OUTPUT ACCEPT
+
+# INPUT: loopback + established + LAN full access
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
 iptables -A INPUT -i $LAN_IF -j ACCEPT
 
-# VPN ports on WAN
-iptables -A INPUT -i $WAN_IF -p udp --dport 1194 -j ACCEPT   # OpenVPN UDP
-iptables -A INPUT -i $WAN_IF -p tcp --dport 1194 -j ACCEPT   # OpenVPN TCP
-iptables -A INPUT -i $WAN_IF -p udp --dport 51820 -j ACCEPT  # WireGuard
-iptables -A INPUT -i $WAN_IF -p udp --dport 500 -j ACCEPT    # IPSec IKE
-iptables -A INPUT -i $WAN_IF -p udp --dport 4500 -j ACCEPT   # IPSec NAT-T
-iptables -A INPUT -i $WAN_IF -p 50 -j ACCEPT                 # ESP (IPSec)
-iptables -A INPUT -i $WAN_IF -p udp --dport 1701 -j ACCEPT   # L2TP
-# Additional custom rules inserted by the rules engine go above this line
+# INPUT: VPN ports on WAN
+iptables -A INPUT -i $WAN_IF -p udp --dport 1194 -j ACCEPT
+iptables -A INPUT -i $WAN_IF -p tcp --dport 1194 -j ACCEPT
+iptables -A INPUT -i $WAN_IF -p udp --dport 51820 -j ACCEPT
+iptables -A INPUT -i $WAN_IF -p udp --dport 500 -j ACCEPT
+iptables -A INPUT -i $WAN_IF -p udp --dport 4500 -j ACCEPT
+iptables -A INPUT -i $WAN_IF -p 50 -j ACCEPT
+iptables -A INPUT -i $WAN_IF -p udp --dport 1701 -j ACCEPT
+
+# FORWARD: LAN → WAN + established return traffic
+iptables -A FORWARD -i $LAN_IF -o $WAN_IF -j ACCEPT
+iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# NAT: masquerade LAN traffic going out WAN
+iptables -t nat -A POSTROUTING -o $WAN_IF -j MASQUERADE
+
 netfilter-persistent save 2>/dev/null || true
 
 # Update DB with interface names
@@ -82,11 +98,6 @@ systemctl restart dnsmasq
 # Enable IP forwarding
 echo 1 > /proc/sys/net/ipv4/ip_forward
 sed -i 's/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/' /etc/sysctl.conf 2>/dev/null || true
-
-# NAT masquerade
-iptables -t nat -A POSTROUTING -o $WAN_IF -j MASQUERADE
-iptables -A FORWARD -i $LAN_IF -o $WAN_IF -j ACCEPT
-iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
 
 systemctl restart aegisguard
 
