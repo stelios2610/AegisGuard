@@ -101,6 +101,7 @@ key-direction 0
 
 # Network
 server {subnet} {netmask}
+push "redirect-gateway def1 bypass-dhcp"
 push "route 10.0.0.0 255.255.255.0"
 push "dhcp-option DNS {cfg.get('dns1','1.1.1.1')}"
 push "dhcp-option DNS {cfg.get('dns2','8.8.8.8')}"
