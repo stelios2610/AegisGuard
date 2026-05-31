@@ -37,7 +37,7 @@ iptables -X 2>/dev/null || true
 
 # Default policies
 iptables -P INPUT DROP
-iptables -P FORWARD ACCEPT
+iptables -P FORWARD DROP
 iptables -P OUTPUT ACCEPT
 
 # INPUT: loopback + established + LAN full access
@@ -56,6 +56,13 @@ iptables -A INPUT -i "$WAN_IF" -p udp --dport 1701 -j ACCEPT
 
 # INPUT: allow VPN tunnel traffic
 iptables -A INPUT -i tun0 -j ACCEPT
+
+# Rate limit VPN auth: max 5 new connections per minute per IP
+iptables -A INPUT -i "$WAN_IF" -p udp --dport 1194 -m state --state NEW \
+  -m recent --set --name VPN_RATELIMIT --rsource 2>/dev/null || true
+iptables -A INPUT -i "$WAN_IF" -p udp --dport 1194 -m state --state NEW \
+  -m recent --update --seconds 60 --hitcount 6 --name VPN_RATELIMIT --rsource \
+  -j DROP 2>/dev/null || true
 
 # FORWARD: LAN → WAN + VPN ↔ LAN + VPN → WAN (full tunnel) + established return traffic
 iptables -A FORWARD -i "$LAN_IF" -o "$WAN_IF" -j ACCEPT
@@ -105,6 +112,14 @@ systemctl enable dnsmasq 2>/dev/null || true
 systemctl restart dnsmasq 2>/dev/null || true
 
 systemctl restart aegisguard 2>/dev/null || true
+
+# Fail2ban: install filters and jails for SSH + VPN brute force protection
+if command -v fail2ban-client &>/dev/null; then
+    cp /opt/aegisguard/build/fail2ban-filter-aegisguard-vpn.conf /etc/fail2ban/filter.d/aegisguard-vpn.conf 2>/dev/null || true
+    cp /opt/aegisguard/build/fail2ban-aegisguard.conf /etc/fail2ban/jail.d/aegisguard.conf 2>/dev/null || true
+    systemctl enable fail2ban 2>/dev/null || true
+    systemctl restart fail2ban 2>/dev/null || true
+fi
 
 echo ""
 echo "================================================"

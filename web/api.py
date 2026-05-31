@@ -46,11 +46,34 @@ def _log_pruner():
 
 _threading.Thread(target=_log_pruner, daemon=True).start()
 
-app = FastAPI(title="AegisGuard", version="1.0.0", docs_url=None)
+app = FastAPI(title="AegisGuard", version="1.0.0", docs_url=None,
+             openapi_url=None)  # disable openapi exposure
 
-# ── Auth middleware — protects all HTML pages ─────────────────────────────────
+# ── Security headers middleware ───────────────────────────────────────────────
 from starlette.middleware.base import BaseHTTPMiddleware
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none';"
+        )
+        response.headers.pop("server", None)
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+# ── Auth middleware — protects all HTML pages ─────────────────────────────────
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         redirect = require_auth(request)
