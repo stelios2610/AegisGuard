@@ -54,12 +54,18 @@ iptables -A INPUT -i "$WAN_IF" -p udp --dport 4500 -j ACCEPT
 iptables -A INPUT -i "$WAN_IF" -p 50 -j ACCEPT
 iptables -A INPUT -i "$WAN_IF" -p udp --dport 1701 -j ACCEPT
 
-# FORWARD: LAN → WAN + established return traffic
+# INPUT: allow VPN tunnel traffic
+iptables -A INPUT -i tun0 -j ACCEPT
+
+# FORWARD: LAN → WAN + VPN ↔ LAN + established return traffic
 iptables -A FORWARD -i "$LAN_IF" -o "$WAN_IF" -j ACCEPT
+iptables -A FORWARD -i tun0 -o "$LAN_IF" -j ACCEPT
+iptables -A FORWARD -i "$LAN_IF" -o tun0 -j ACCEPT
 iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
 
-# NAT: masquerade LAN traffic going out WAN
+# NAT: masquerade LAN traffic + VPN clients going out WAN
 iptables -t nat -A POSTROUTING -o "$WAN_IF" -j MASQUERADE
+iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o "$LAN_IF" -j MASQUERADE
 
 # Enable IP forwarding
 echo 1 > /proc/sys/net/ipv4/ip_forward

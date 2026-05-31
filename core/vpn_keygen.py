@@ -102,8 +102,8 @@ def generate_openvpn_pki(output_dir, server_name="server", client_name="client",
                       "-CAcreateserial", "-out", client_cert])
     steps.append(("Client cert", ok, err))
 
-    # DH parameters (can be slow, use 1024 for speed)
-    ok, _, err = run(["openssl", "dhparam", "-out", dh_params, "1024"], timeout=120)
+    # DH parameters - 2048-bit required by OpenSSL 3.x
+    ok, _, err = run(["openssl", "dhparam", "-out", dh_params, "2048"], timeout=300)
     steps.append(("DH params", ok, err))
 
     # TLS-Auth key

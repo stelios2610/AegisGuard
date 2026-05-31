@@ -101,7 +101,7 @@ key-direction 0
 
 # Network
 server {subnet} {netmask}
-{'push "redirect-gateway def1 bypass-dhcp"' if cfg.get('redirect_gateway',1) else ''}
+push "route 10.0.0.0 255.255.255.0"
 push "dhcp-option DNS {cfg.get('dns1','1.1.1.1')}"
 push "dhcp-option DNS {cfg.get('dns2','8.8.8.8')}"
 
@@ -109,8 +109,6 @@ push "dhcp-option DNS {cfg.get('dns2','8.8.8.8')}"
 cipher {cipher}
 auth {auth}
 tls-version-min {cfg.get('tls_version','1.2')}
-tls-cipher TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384
-
 # User auth via script
 script-security 2
 auth-user-pass-verify /etc/aegisguard/vpn-auth.sh via-env
@@ -155,7 +153,7 @@ python3 /etc/aegisguard/vpn_auth_check.py "$username" "$password"
     auth_check_code = """#!/usr/bin/env python3
 import sys, os, sqlite3, hashlib, hmac
 
-DB = '/etc/aegisguard/firewall.db'
+DB = '/opt/aegisguard/firewall.db'
 username = sys.argv[1] if len(sys.argv) > 1 else ''
 password = sys.argv[2] if len(sys.argv) > 2 else ''
 
@@ -182,6 +180,7 @@ except Exception:
             f.write(auth_check_code)
         os.chmod(auth_script, 0o755)
         os.chmod(auth_check, 0o755)
+        os.chmod("/etc/aegisguard", 0o755)
         return True, "Auth scripts written"
     except Exception as e:
         return False, str(e)
