@@ -112,7 +112,7 @@ auth {auth}
 tls-version-min {cfg.get('tls_version','1.2')}
 # User auth via script
 script-security 2
-auth-user-pass-verify /etc/aegisguard/vpn-auth.sh via-env
+auth-user-pass-verify /etc/aegisguard/vpn-auth.sh via-file
 username-as-common-name
 verify-client-cert optional
 
@@ -144,21 +144,24 @@ def write_auth_script():
     """Write the OpenVPN user auth script."""
     script = """#!/bin/bash
 # AegisGuard SSL VPN auth script
-# Called by OpenVPN with username=$username password=$password
+# Called by OpenVPN via-file: $1 = temp file with username/password
 
-python3 /etc/aegisguard/vpn_auth_check.py "$username" "$password"
+/usr/bin/python3 /etc/aegisguard/vpn_auth_check.py "$1"
 """
     auth_script = "/etc/aegisguard/vpn-auth.sh"
     auth_check = "/etc/aegisguard/vpn_auth_check.py"
 
     auth_check_code = """#!/usr/bin/env python3
-import sys, os, sqlite3, hashlib, hmac
+import sys, sqlite3, hashlib, hmac
 
 DB = '/opt/aegisguard/firewall.db'
-username = sys.argv[1] if len(sys.argv) > 1 else ''
-password = sys.argv[2] if len(sys.argv) > 2 else ''
 
 try:
+    with open(sys.argv[1]) as f:
+        lines = f.read().splitlines()
+    username = lines[0] if len(lines) > 0 else ''
+    password = lines[1] if len(lines) > 1 else ''
+
     conn = sqlite3.connect(DB)
     row = conn.execute('SELECT password_hash, enabled FROM vpn_users WHERE username=?', (username,)).fetchone()
     conn.close()
