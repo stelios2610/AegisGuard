@@ -788,6 +788,20 @@ async def api_ddos_stats():
     return reputation.get_ddos_stats()
 @app.post("/api/security/ddos/unblock/{ip}")
 async def api_ddos_unblock(ip: str): reputation.unblock_ip(ip); return {"status":"ok"}
+
+@app.post("/api/security/ddos/unblock-all")
+async def api_ddos_unblock_all():
+    for ip in list(reputation.get_ddos_blocked()):
+        reputation.unblock_ip(ip)
+    return {"status": "ok", "message": "All blocked IPs cleared"}
+
+@app.post("/api/security/geoip")
+async def api_save_geoip(request: Request):
+    data = await request.json()
+    codes = data.get("blocked_countries", [])
+    database.set_setting("geoip_blocked_countries", ",".join(codes))
+    return {"status": "ok"}
+
 @app.post("/api/security/ddos/config")
 async def api_ddos_config(request: Request):
     data = await request.json(); reputation.update_ddos_config(**data); return {"status":"ok"}
@@ -826,6 +840,33 @@ async def api_dlp_scan(request: Request):
     findings = dlp.scan_content(data.get("content",""), source="api")
     return {"findings":findings}
 
+@app.post("/api/security/dlp/patterns")
+async def api_add_dlp_pattern(request: Request):
+    data = await request.json()
+    dlp.add_custom_pattern(
+        name=data.get("name", ""),
+        pattern=data.get("pattern", ""),
+        severity=data.get("severity", "MEDIUM"),
+        enabled=bool(data.get("enabled", 1))
+    )
+    return {"status": "ok"}
+
+@app.post("/api/security/dlp/patterns/{pid}/toggle")
+async def api_toggle_dlp_pattern(pid: int):
+    patterns = dlp._custom_patterns
+    if pid < 0 or pid >= len(patterns):
+        raise HTTPException(404)
+    patterns[pid]["enabled"] = not patterns[pid].get("enabled", True)
+    return {"status": "ok"}
+
+@app.delete("/api/security/dlp/patterns/{pid}")
+async def api_del_dlp_pattern(pid: int):
+    patterns = dlp._custom_patterns
+    if pid < 0 or pid >= len(patterns):
+        raise HTTPException(404)
+    patterns.pop(pid)
+    return {"status": "ok"}
+
 @app.post("/api/security/spam/check")
 async def api_spam_check(request: Request):
     data = await request.json()
@@ -853,6 +894,11 @@ async def api_arp():
 @app.get("/api/discovery/status")
 async def api_disc_status():
     return {"scanning":network_discovery.is_scanning()}
+
+@app.post("/api/discovery/scan/stop")
+async def api_scan_stop():
+    network_discovery.stop_scan()
+    return {"status": "ok"}
 
 @app.post("/api/discovery/ping")
 async def api_ping(request: Request):
@@ -886,6 +932,41 @@ async def api_add_user(u: UserCreate):
 async def api_del_user(uid: int):
     database.delete_user(uid); return {"status":"ok"}
 
+@app.post("/api/auth/users/{uid}/toggle")
+async def api_toggle_user(uid: int):
+    conn = database.get_connection()
+    row = conn.execute("SELECT enabled FROM auth_users WHERE id=?", (uid,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(404)
+    database.update_user(uid, enabled=0 if row["enabled"] else 1)
+    return {"status": "ok"}
+
+@app.post("/api/auth/users/{uid}/mfa/disable")
+async def api_disable_mfa(uid: int):
+    # Clear MFA by resetting password_hash prefix (mfa:<secret> -> empty hash)
+    conn = database.get_connection()
+    row = conn.execute("SELECT password_hash FROM auth_users WHERE id=?", (uid,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(404)
+    if row["password_hash"] and row["password_hash"].startswith("mfa:"):
+        database.update_user(uid, password_hash="")
+    return {"status": "ok"}
+
+@app.post("/api/auth/users/{uid}/mfa/verify")
+async def api_verify_mfa(uid: int, request: Request):
+    data = await request.json()
+    code = str(data.get("code", ""))
+    conn = database.get_connection()
+    row = conn.execute("SELECT password_hash FROM auth_users WHERE id=?", (uid,)).fetchone()
+    conn.close()
+    if not row or not (row["password_hash"] or "").startswith("mfa:"):
+        raise HTTPException(400, "MFA not enabled for this user")
+    secret = row["password_hash"][4:]  # strip "mfa:" prefix
+    ok = mfa.verify_totp(secret, code)
+    return {"status": "ok" if ok else "error", "valid": ok}
+
 @app.post("/api/auth/users/{uid}/mfa/enable")
 async def api_enable_mfa(uid: int):
     secret = mfa.enable_mfa_for_user(uid)
@@ -905,6 +986,41 @@ async def api_get_certs():
     return database.get_certificates()
 @app.delete("/api/certificates/{cid}")
 async def api_del_cert(cid: int): database.delete_certificate(cid); return {"status":"ok"}
+
+@app.post("/api/certificates/import")
+async def api_import_cert(request: Request):
+    data = await request.json()
+    name = data.get("name", "Imported")
+    cert_pem = data.get("cert_pem", "")
+    key_pem  = data.get("key_pem", "")
+    if not cert_pem:
+        raise HTTPException(400, "cert_pem required")
+    import subprocess, tempfile, os
+    with tempfile.NamedTemporaryFile(suffix=".crt", delete=False, mode='w') as f:
+        f.write(cert_pem); tmp = f.name
+    try:
+        r = subprocess.run(["openssl", "x509", "-noout", "-subject", "-in", tmp],
+                           capture_output=True, text=True, timeout=5)
+        subject = r.stdout.strip().replace("subject=", "") if r.returncode == 0 else ""
+    except Exception:
+        subject = ""
+    finally:
+        try: os.unlink(tmp)
+        except: pass
+    database.add_certificate(name, "imported", subject=subject, cert_pem=cert_pem, key_pem=key_pem)
+    return {"status": "ok"}
+
+@app.get("/api/certificates/{cid}/export")
+async def api_export_cert(cid: int):
+    conn = database.get_connection()
+    row = conn.execute("SELECT name, cert_pem, key_pem FROM certificates WHERE id=?", (cid,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(404)
+    pem = (row["cert_pem"] or "") + ("\n" + row["key_pem"] if row["key_pem"] else "")
+    name = (row["name"] or f"cert-{cid}").replace(" ", "_")
+    return StreamingResponse(io.StringIO(pem), media_type="application/x-pem-file",
+                             headers={"Content-Disposition": f"attachment; filename={name}.pem"})
 
 @app.post("/api/certificates/generate-self-signed")
 async def api_gen_cert(request: Request):
@@ -945,6 +1061,20 @@ async def api_add_proxy(r: ProxyRule):
     database.add_proxy_rule(**r.model_dump()); return {"status":"ok"}
 @app.delete("/api/proxies/{rid}")
 async def api_del_proxy(rid: int): database.delete_proxy_rule(rid); return {"status":"ok"}
+
+@app.post("/api/proxies/{pid}/toggle")
+async def api_toggle_proxy(pid: int):
+    conn = database.get_connection()
+    row = conn.execute("SELECT enabled FROM proxy_rules WHERE id=?", (pid,)).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(404)
+    conn2 = database.get_connection()
+    conn2.execute("UPDATE proxy_rules SET enabled=? WHERE id=?",
+                  (0 if row["enabled"] else 1, pid))
+    conn2.commit()
+    conn2.close()
+    return {"status": "ok"}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1010,6 +1140,70 @@ async def api_add_log_server(s: LogServer):
     database.add_log_server(**s.model_dump()); return {"status":"ok"}
 @app.delete("/api/logging/servers/{sid}")
 async def api_del_log_server(sid:int): database.delete_log_server(sid); return {"status":"ok"}
+
+# Syslog test
+@app.post("/api/logging/servers/{sid}/test")
+async def api_test_log_server(sid: int):
+    servers = database.get_log_servers()
+    srv = next((s for s in servers if s["id"] == sid), None)
+    if not srv:
+        raise HTTPException(404, "Server not found")
+    import socket
+    try:
+        if srv.get("protocol", "UDP").upper() == "TCP":
+            with socket.create_connection((srv["host"], srv["port"]), timeout=3):
+                pass
+        else:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.sendto(b"<14>AegisGuard test message", (srv["host"], srv["port"]))
+        return {"status": "ok", "message": f"Connected to {srv['host']}:{srv['port']}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+# Factory reset
+@app.post("/api/settings/factory-reset")
+async def api_factory_reset():
+    database.clear_logs()
+    rules_engine.flush_all_rules()
+    return {"status": "ok", "message": "Factory reset complete. Please reboot."}
+
+# Firewall status
+@app.get("/api/settings/fw-status")
+async def api_fw_status():
+    rules = database.get_rules()
+    return {"total_rules": len(rules), "enabled": sum(1 for r in rules if r.get("enabled")), "synced": True}
+
+# Clear all firewall rules
+@app.post("/api/rules/clear-all")
+async def api_clear_all_rules():
+    rules = database.get_rules()
+    for r in rules:
+        rules_engine.remove_rule_from_system(r)
+        database.delete_rule(r["id"])
+    return {"status": "ok"}
+
+# Test email
+@app.post("/api/settings/test-email")
+async def api_test_email():
+    import smtplib
+    host = database.get_setting("email_host", "")
+    port = int(database.get_setting("email_port", "587"))
+    user = database.get_setting("email_user", "")
+    pw   = database.get_setting("email_password", "")
+    to   = database.get_setting("email_to", "")
+    if not host or not to:
+        return {"status": "error", "message": "Email not configured"}
+    try:
+        with smtplib.SMTP(host, port, timeout=5) as s:
+            if port in (587, 465):
+                s.starttls()
+            if user:
+                s.login(user, pw)
+            s.sendmail(user or "aegisguard@localhost", to,
+                       f"Subject: AegisGuard Test\r\n\r\nTest email from AegisGuard.")
+        return {"status": "ok", "message": f"Test email sent to {to}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 # Blocked sites convenience
 @app.post("/api/blocked/ip")

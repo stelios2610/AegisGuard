@@ -129,6 +129,11 @@ def is_scanning():
     return _scan_running
 
 
+def stop_scan():
+    global _scan_running
+    _scan_running = False
+
+
 def ping_host(ip, count=4):
     """Quick ping test."""
     flag = "-c" if IS_LINUX else "-n"

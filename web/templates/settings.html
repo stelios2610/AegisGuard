@@ -632,7 +632,7 @@ async function changePassword() {
   if (!newPw || newPw.length < 8) { toast('New password must be at least 8 characters', 'error'); return; }
   if (newPw !== confirm) { toast('New passwords do not match', 'error'); return; }
   try {
-    await POST('/api/auth/change-password', { current_password: current, new_password: newPw });
+    await POST('/api/settings/change-password', { current_password: current, new_password: newPw });
     toast('Password changed successfully', 'success');
     document.getElementById('pw-current').value = '';
     document.getElementById('pw-new').value = '';
@@ -738,7 +738,7 @@ async function saveSyslog() {
     enabled: document.getElementById('sl-enabled').checked ? 1 : 0,
   };
   try {
-    await POST('/api/settings/syslog', data);
+    await POST('/api/logging/servers', data);
     toast('Syslog server added', 'success');
     closeModal('add-syslog-modal');
     setTimeout(() => location.reload(), 600);
@@ -747,7 +747,7 @@ async function saveSyslog() {
 
 async function testSyslog(id) {
   try {
-    const r = await POST(`/api/settings/syslog/${id}/test`);
+    const r = await POST(`/api/logging/servers/${id}/test`);
     toast(r.message || 'Syslog test sent', 'success');
   } catch (e) { toast('Test error: ' + e.message, 'error'); }
 }
@@ -755,7 +755,7 @@ async function testSyslog(id) {
 async function deleteSyslog(id) {
   if (!confirm2('Delete this syslog server?')) return;
   try {
-    await DELETE(`/api/settings/syslog/${id}`);
+    await DELETE(`/api/logging/servers/${id}`);
     document.getElementById(`syslog-row-${id}`)?.remove();
     toast('Syslog server removed', 'success');
   } catch (e) { toast('Error: ' + e.message, 'error'); }

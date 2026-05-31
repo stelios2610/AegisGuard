@@ -294,7 +294,7 @@ async function generateCert() {
   };
   try {
     toast('Generating certificate...', 'info');
-    const r = await POST('/api/certificates/generate', data);
+    const r = await POST('/api/certificates/generate-self-signed', data);
     toast('Certificate generated successfully', 'success');
     closeModal('gen-cert-modal');
     setTimeout(() => location.reload(), 800);

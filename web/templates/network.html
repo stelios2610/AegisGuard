@@ -1493,7 +1493,7 @@ async function saveNAT() {
 async function deleteNAT(id) {
   if (!confirm2('Delete this NAT rule?')) return;
   try {
-    await DELETE(`/api/network/nat/${id}`);
+    await DELETE(`/api/nat/${id}`);
     document.getElementById(`nat-row-${id}`)?.remove();
     toast('NAT rule deleted', 'success');
   } catch (e) { toast('Error: ' + e.message, 'error'); }
