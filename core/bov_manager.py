@@ -100,9 +100,17 @@ def _write_strongswan_secrets(tunnels):
 
 
 def apply_ipsec_tunnels():
-    """Write StrongSwan config and reload."""
+    """Write StrongSwan config and reload (auto-installs strongswan if missing)."""
     if not IS_LINUX:
         return False, "IPSec management requires Linux"
+
+    # Auto-install strongswan if not present
+    ok_check, _, _ = run(["which", "ipsec"])
+    if not ok_check:
+        database.add_log("INFO", details="IPSec: installing strongswan...")
+        run(["apt-get", "install", "-y",
+             "strongswan", "strongswan-swanctl", "charon-systemd"], timeout=180)
+
     tunnels = database.get_bov_tunnels()
     ipsec_tunnels = [t for t in tunnels if t["type"] in ("IKEv2", "IKEv1", "L2TP-IPSec")]
     if not ipsec_tunnels:

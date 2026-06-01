@@ -792,6 +792,10 @@ async def api_ips_sigs():
     return ips.get_signatures()
 @app.post("/api/ips/clear")
 async def api_ips_clear(): ips.clear_alerts(); return {"status":"ok"}
+@app.get("/api/ips/blocked")
+async def api_ips_blocked(): return {"blocked": ips.get_blocked_ips()}
+@app.post("/api/ips/unblock/{ip}")
+async def api_ips_unblock(ip: str): ips.unblock_ip(ip); return {"status":"ok"}
 
 
 # ══════════════════════════════════════════════════════════════════════════════

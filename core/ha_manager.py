@@ -151,7 +151,7 @@ esac
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def apply_ha():
-    """Write config and reload keepalived."""
+    """Write config and reload keepalived (auto-installs if missing)."""
     if not IS_LINUX:
         return False, "HA requires Linux"
 
@@ -159,10 +159,13 @@ def apply_ha():
     if not ok:
         return False, msg
 
-    # Check if keepalived is installed
+    # Auto-install keepalived if not present
     ok2, _, _ = run(["which", "keepalived"])
     if not ok2:
-        return False, "keepalived not installed. Run: apt install keepalived"
+        database.add_log("INFO", details="HA: installing keepalived...")
+        ok_inst, _, err_inst = run(["apt-get", "install", "-y", "keepalived"], timeout=120)
+        if not ok_inst:
+            return False, f"Failed to install keepalived: {err_inst}"
 
     run(["systemctl", "enable", "keepalived"])
     ok3, out, err = run(["systemctl", "restart", "keepalived"])
