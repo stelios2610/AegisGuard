@@ -905,7 +905,7 @@ def prune_logs(max_bytes=2_147_483_648):
 def get_log_stats():
     conn = get_connection()
     total = conn.execute("SELECT COUNT(*) as c FROM logs").fetchone()["c"]
-    blocked = conn.execute("SELECT COUNT(*) as c FROM logs WHERE action='BLOCK'").fetchone()["c"]
+    blocked = conn.execute("SELECT COUNT(*) as c FROM logs WHERE action IN ('BLOCK','DROP','THREAT')").fetchone()["c"]
     allowed = conn.execute("SELECT COUNT(*) as c FROM logs WHERE action='ALLOW'").fetchone()["c"]
     today = datetime.now().date().isoformat()
     today_count = conn.execute(

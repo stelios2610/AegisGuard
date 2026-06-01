@@ -238,7 +238,7 @@ def _monitor_loop():
             raw = psutil.net_connections(kind="inet")
             conns = []
             for c in raw:
-                if c.raddr:
+                if c.raddr and not _is_safe_ip(c.raddr.ip):
                     conns.append({
                         "remote_ip":  c.raddr.ip,
                         "local_port": c.laddr.port if c.laddr else 0,
