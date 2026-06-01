@@ -158,7 +158,7 @@ async def login_submit(request: Request,
                                       {"error": "Invalid username or password"},
                                       status_code=401)
 
-@app.get("/logout")
+@app.post("/logout")
 async def logout(request: Request):
     delete_session(request)
     response = RedirectResponse(url="/login", status_code=302)

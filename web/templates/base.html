@@ -214,11 +214,13 @@
     <div style="color:var(--warning);margin-top:3px;font-size:10px">⚠ Not Administrator</div>
     {% endif %}
     <div style="color:#444;margin-top:5px;font-size:10px">AegisGuard v1.0.0</div>
-    <a href="/logout" style="display:block;margin-top:8px;color:#8b949e;font-size:11px;text-decoration:none;padding:4px 8px;border:1px solid #30363d;border-radius:4px;text-align:center;transition:all 0.15s"
-       onmouseover="this.style.color='#e74c3c';this.style.borderColor='#e74c3c'"
-       onmouseout="this.style.color='#8b949e';this.style.borderColor='#30363d'">
-      ⏻ Sign Out
-    </a>
+    <form method="POST" action="/logout" style="margin-top:8px">
+      <button type="submit" style="display:block;width:100%;background:none;border:1px solid #30363d;border-radius:4px;color:#8b949e;font-size:11px;padding:4px 8px;text-align:center;cursor:pointer;transition:all 0.15s"
+              onmouseover="this.style.color='#e74c3c';this.style.borderColor='#e74c3c'"
+              onmouseout="this.style.color='#8b949e';this.style.borderColor='#30363d'">
+        ⏻ Sign Out
+      </button>
+    </form>
   </div>
 </nav>
 
