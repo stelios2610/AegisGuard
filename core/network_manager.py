@@ -267,7 +267,8 @@ def apply_routes():
         if not r["enabled"]:
             continue
         prefix = _netmask_to_prefix(r["netmask"])
-        cmd = ["ip", "route", "add", f"{r['destination']}/{prefix}", "via", r["gateway"]]
+        # Use "replace" instead of "add" to avoid duplicate route errors
+        cmd = ["ip", "route", "replace", f"{r['destination']}/{prefix}", "via", r["gateway"]]
         if r.get("interface"):
             cmd += ["dev", r["interface"]]
         if r.get("metric"):

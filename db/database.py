@@ -545,6 +545,18 @@ def initialize():
     c.execute("INSERT OR IGNORE INTO ha_config (id, updated_at) VALUES (1, ?)",
               (datetime.now().isoformat(),))
 
+    # ── DLP custom patterns ───────────────────────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS dlp_patterns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            pattern TEXT NOT NULL,
+            severity TEXT NOT NULL DEFAULT 'MEDIUM',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        )
+    """)
+
     # ── Default SSL VPN config row ────────────────────────────────────────────
     c.execute("INSERT OR IGNORE INTO ssl_vpn_config (id, updated_at) VALUES (1, ?)",
               (datetime.now().isoformat(),))
@@ -1745,5 +1757,44 @@ def save_ha_config(**kwargs):
     values = list(fields.values())
     conn = get_connection()
     conn.execute(f"UPDATE ha_config SET {sets} WHERE id = 1", values)
+    conn.commit()
+    conn.close()
+
+
+# ─── DLP custom patterns ──────────────────────────────────────────────────────
+
+def get_dlp_patterns():
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM dlp_patterns ORDER BY id").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def add_dlp_pattern(name, pattern, severity="MEDIUM", enabled=1):
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO dlp_patterns (name, pattern, severity, enabled, created_at) VALUES (?,?,?,?,?)",
+        (name, pattern, severity, enabled, datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_dlp_pattern(pattern_id, **kwargs):
+    allowed = {"name", "pattern", "severity", "enabled"}
+    fields = {k: v for k, v in kwargs.items() if k in allowed}
+    if not fields:
+        return
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    conn = get_connection()
+    conn.execute(f"UPDATE dlp_patterns SET {sets} WHERE id = ?",
+                 list(fields.values()) + [pattern_id])
+    conn.commit()
+    conn.close()
+
+
+def delete_dlp_pattern(pattern_id):
+    conn = get_connection()
+    conn.execute("DELETE FROM dlp_patterns WHERE id = ?", (pattern_id,))
     conn.commit()
     conn.close()

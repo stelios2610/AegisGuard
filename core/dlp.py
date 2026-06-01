@@ -1,5 +1,4 @@
-"""Data Loss Prevention (DLP) - WatchGuard DLP equivalent.
-Scans traffic/content for sensitive data patterns."""
+"""Data Loss Prevention (DLP) — custom patterns persisted in DB."""
 import re
 from datetime import datetime
 from db import database
@@ -23,7 +22,6 @@ PATTERNS = {
     "Greek AFM":                (r"\b\d{9}\b",                                 "MEDIUM"),
 }
 
-_custom_patterns = []
 _enabled_patterns = set(PATTERNS.keys())
 
 
@@ -38,16 +36,15 @@ def scan_content(content, source="unknown"):
             continue
         matches = re.findall(pattern, content)
         if matches:
-            redacted = [_redact(m) for m in matches[:3]]
             findings.append({
                 "pattern": name,
                 "severity": severity,
                 "count": len(matches),
-                "samples": redacted,
+                "samples": [_redact(m) for m in matches[:3]],
             })
 
-    for cp in _custom_patterns:
-        if not cp.get("enabled", True):
+    for cp in database.get_dlp_patterns():
+        if not cp.get("enabled", 1):
             continue
         try:
             matches = re.findall(cp["pattern"], content)
@@ -63,11 +60,10 @@ def scan_content(content, source="unknown"):
 
     if findings:
         total = sum(f["count"] for f in findings)
-        high = any(f["severity"] in ("CRITICAL", "HIGH") for f in findings)
+        high  = any(f["severity"] in ("CRITICAL", "HIGH") for f in findings)
         database.add_log(
             "BLOCK" if high else "WARN",
-            src_ip=source,
-            rule_name="DLP",
+            src_ip=source, rule_name="DLP",
             details=f"DLP: {len(findings)} pattern types, {total} matches in {source}"
         )
 
@@ -75,7 +71,6 @@ def scan_content(content, source="unknown"):
 
 
 def _redact(match):
-    """Redact sensitive value."""
     s = str(match)
     if len(s) <= 4:
         return "****"
@@ -83,15 +78,14 @@ def _redact(match):
 
 
 def add_custom_pattern(name, pattern, severity="MEDIUM", enabled=True):
-    _custom_patterns.append({"name": name, "pattern": pattern,
-                              "severity": severity, "enabled": enabled})
+    database.add_dlp_pattern(name, pattern, severity, 1 if enabled else 0)
 
 
 def get_patterns():
     built_in = [{"name": k, "pattern": v[0], "severity": v[1],
                  "enabled": k in _enabled_patterns, "builtin": True}
                 for k, v in PATTERNS.items()]
-    custom = [{"builtin": False, **p} for p in _custom_patterns]
+    custom = [{"builtin": False, **p} for p in database.get_dlp_patterns()]
     return built_in + custom
 
 
@@ -103,7 +97,6 @@ def set_pattern_enabled(name, enabled):
 
 
 def scan_file(path):
-    """Scan a file for sensitive data."""
     try:
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()

@@ -277,7 +277,12 @@ def unblock_ip(ip):
 # ── Init ──────────────────────────────────────────────────────────────────────
 
 def init():
+    ensure_data_dir()
     _load_blocklist()
+    # Auto-download on first run if no blocklist exists
+    if not os.path.isfile(_blocklist_path):
+        t = threading.Thread(target=update_blocklists, daemon=True)
+        t.start()
 
 
 init()

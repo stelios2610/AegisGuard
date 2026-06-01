@@ -884,18 +884,16 @@ async def api_add_dlp_pattern(request: Request):
 
 @app.post("/api/security/dlp/patterns/{pid}/toggle")
 async def api_toggle_dlp_pattern(pid: int):
-    patterns = dlp._custom_patterns
-    if pid < 0 or pid >= len(patterns):
+    patterns = database.get_dlp_patterns()
+    row = next((p for p in patterns if p["id"] == pid), None)
+    if not row:
         raise HTTPException(404)
-    patterns[pid]["enabled"] = not patterns[pid].get("enabled", True)
+    database.update_dlp_pattern(pid, enabled=0 if row["enabled"] else 1)
     return {"status": "ok"}
 
 @app.delete("/api/security/dlp/patterns/{pid}")
 async def api_del_dlp_pattern(pid: int):
-    patterns = dlp._custom_patterns
-    if pid < 0 or pid >= len(patterns):
-        raise HTTPException(404)
-    patterns.pop(pid)
+    database.delete_dlp_pattern(pid)
     return {"status": "ok"}
 
 @app.post("/api/security/spam/check")
