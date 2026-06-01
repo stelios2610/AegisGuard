@@ -134,12 +134,27 @@ def stop_scan():
     _scan_running = False
 
 
+def _validate_host(host: str) -> bool:
+    """Allow only valid IPv4/IPv6 addresses or simple hostnames."""
+    import ipaddress
+    if not host or len(host) > 253:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        pass
+    # Allow simple hostnames/FQDNs (letters, digits, hyphens, dots only)
+    return bool(re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9\-\.]{0,251}[a-zA-Z0-9])?$', host))
+
+
 def ping_host(ip, count=4):
     """Quick ping test."""
+    if not _validate_host(ip):
+        return False, None
     flag = "-c" if IS_LINUX else "-n"
     ok, out, err = run(["ping", flag, str(count), ip], timeout=10)
     if ok:
-        # Parse avg round-trip time
         m = re.search(r"avg.*?=.*?/([\d.]+)/", out)
         rtt = float(m.group(1)) if m else None
         return True, rtt
@@ -148,6 +163,8 @@ def ping_host(ip, count=4):
 
 def traceroute(ip):
     """Run traceroute to a host."""
+    if not _validate_host(ip):
+        return "Invalid host address"
     cmd = ["traceroute", ip] if IS_LINUX else ["tracert", ip]
     ok, out, err = run(cmd, timeout=60)
     return out if ok else err

@@ -8,6 +8,12 @@ from fastapi import Request, Response
 from fastapi.responses import RedirectResponse
 from db import database
 
+try:
+    import bcrypt as _bcrypt
+    _BCRYPT_OK = True
+except ImportError:
+    _BCRYPT_OK = False
+
 # In-memory session store: {token: {"user": str, "expires": datetime}}
 _sessions: dict = {}
 
@@ -17,17 +23,43 @@ SESSION_HOURS = 8
 # Routes that don't require login
 PUBLIC_ROUTES = {"/login", "/favicon.ico"}
 
+# ── Login rate limiting ───────────────────────────────────────────────────────
+_login_attempts: dict = {}   # {ip: [datetime, ...]}
+_LOGIN_MAX = 10
+_LOGIN_WINDOW = 60           # seconds
+
+
+def is_rate_limited(ip: str) -> bool:
+    now = datetime.utcnow()
+    cutoff = now - timedelta(seconds=_LOGIN_WINDOW)
+    attempts = [t for t in _login_attempts.get(ip, []) if t > cutoff]
+    attempts.append(now)
+    _login_attempts[ip] = attempts
+    return len(attempts) > _LOGIN_MAX
+
 
 # ── Password helpers ──────────────────────────────────────────────────────────
 
 def hash_password(password: str) -> str:
+    if _BCRYPT_OK:
+        hashed = _bcrypt.hashpw(password.encode(), _bcrypt.gensalt(rounds=12))
+        return f"bcrypt:{hashed.decode()}"
+    # Fallback to sha256 if bcrypt not available
     salt = secrets.token_hex(16)
     h = hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
     return f"sha256:{salt}:{h}"
 
 
 def verify_password(password: str, stored_hash: str) -> bool:
+    if not stored_hash:
+        return False
     try:
+        if stored_hash.startswith("bcrypt:"):
+            if not _BCRYPT_OK:
+                return False
+            stored = stored_hash[7:].encode()
+            return _bcrypt.checkpw(password.encode(), stored)
+        # Legacy sha256 format
         algo, salt, h = stored_hash.split(":", 2)
         return hmac.compare_digest(
             hashlib.sha256(f"{salt}{password}".encode()).hexdigest(), h
@@ -90,7 +122,8 @@ def require_auth(request: Request) -> Optional[RedirectResponse]:
     if path in PUBLIC_ROUTES or path.startswith("/static"):
         return None
     if get_session_user(request) is None:
-        return RedirectResponse(url=f"/login?next={path}", status_code=302)
+        safe_next = path if path.startswith("/") and not path.startswith("//") else "/"
+        return RedirectResponse(url=f"/login?next={safe_next}", status_code=302)
     return None
 
 

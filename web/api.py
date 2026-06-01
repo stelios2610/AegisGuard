@@ -12,7 +12,7 @@ import io
 import psutil
 from web.auth import (require_auth, attempt_login, create_session,
                       delete_session, get_session_user, ensure_default_admin,
-                      hash_password, COOKIE_NAME, SESSION_HOURS)
+                      hash_password, is_rate_limited, COOKIE_NAME, SESSION_HOURS)
 
 from db import database
 from core import (monitor, ips, rules_engine, web_filter, app_control,
@@ -138,9 +138,16 @@ async def login_submit(request: Request,
                        username: str = Form(...),
                        password: str = Form(...),
                        next: str = Form(default="/")):
+    client_ip = request.client.host if request.client else "unknown"
+    if is_rate_limited(client_ip):
+        return templates.TemplateResponse(request, "login.html",
+                                          {"error": "Too many login attempts. Try again later."},
+                                          status_code=429)
     if attempt_login(username, password):
         token = create_session(username)
-        response = RedirectResponse(url=next or "/", status_code=302)
+        # Only allow relative redirects to prevent open redirect attacks
+        safe_next = next if (next and next.startswith("/") and not next.startswith("//")) else "/"
+        response = RedirectResponse(url=safe_next, status_code=302)
         response.set_cookie(
             COOKIE_NAME, token,
             httponly=True, samesite="lax",
@@ -1142,8 +1149,8 @@ async def api_change_password(request: Request):
     data = await request.json()
     current = data.get("current_password", "")
     new_pw  = data.get("new_password", "")
-    if not new_pw or len(new_pw) < 6:
-        raise HTTPException(400, "Password must be at least 6 characters")
+    if not new_pw or len(new_pw) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
     stored_hash = database.get_setting("admin_password_hash", "")
     from web.auth import verify_password
     if not verify_password(current, stored_hash):
