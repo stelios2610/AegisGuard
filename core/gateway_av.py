@@ -91,7 +91,11 @@ def scan_directory(path, recursive=True):
 
 
 def get_stats():
-    return dict(_scan_stats)
+    stats = dict(_scan_stats)
+    stats["available"]        = is_clamav_available()
+    stats["version"]          = get_clamav_version()
+    stats["definitions_date"] = get_definitions_date()
+    return stats
 
 
 def get_clamav_version():

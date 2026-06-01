@@ -1,12 +1,13 @@
-"""Web Filter - domain/URL blocking via Windows hosts file."""
+"""Web Filter - domain/URL blocking via hosts file (Linux/Windows)."""
 import os
 import re
 import subprocess
 from db import database
+from core.platform import IS_LINUX
 
-HOSTS_PATH = r"C:\Windows\System32\drivers\etc\hosts"
+HOSTS_PATH = "/etc/hosts" if IS_LINUX else r"C:\Windows\System32\drivers\etc\hosts"
 MARKER_BEGIN = "# AegisGuard Web Filter BEGIN"
-MARKER_END = "# AegisGuard Web Filter END"
+MARKER_END   = "# AegisGuard Web Filter END"
 
 BUILTIN_CATEGORIES = {
     "Adult Content": [
@@ -49,7 +50,8 @@ def _write_hosts(content):
             f.write(content)
         return True, "OK"
     except PermissionError:
-        return False, "Permission denied. Run AegisGuard as Administrator to modify hosts file."
+        msg = "Permission denied — run as root" if IS_LINUX else "Permission denied — run as Administrator"
+        return False, msg
     except Exception as e:
         return False, str(e)
 
@@ -81,13 +83,11 @@ def apply_filters():
     filters = database.get_web_filters()
     blocked_domains = set()
 
-    # Built-in category entries
     categories = {c["name"]: c["enabled"] for c in database.get_web_categories()}
     for cat, domains in BUILTIN_CATEGORIES.items():
         if categories.get(cat, 1):
             blocked_domains.update(domains)
 
-    # User-defined filters
     for f in filters:
         if f["enabled"] and f["action"] == "BLOCK":
             pattern = f["pattern"].strip().lower()
@@ -98,7 +98,7 @@ def apply_filters():
 
     current = _read_hosts()
     if current is None:
-        return False, "Cannot read hosts file (run as Administrator)"
+        return False, "Cannot read hosts file (permission denied)"
 
     clean = _strip_aegisguard_block(current)
     if not clean.endswith("\n"):
@@ -127,9 +127,23 @@ def remove_filters():
 
 
 def flush_dns():
+    """Flush DNS cache — cross-platform."""
     try:
-        subprocess.run(["ipconfig", "/flushdns"], capture_output=True, timeout=10)
-        return True
+        if IS_LINUX:
+            for cmd in [
+                ["resolvectl", "flush-caches"],
+                ["systemd-resolve", "--flush-caches"],
+            ]:
+                r = subprocess.run(cmd, capture_output=True, timeout=5)
+                if r.returncode == 0:
+                    return True
+            # Fallback: reload dnsmasq if running
+            subprocess.run(["systemctl", "reload", "dnsmasq"],
+                           capture_output=True, timeout=5)
+            return True
+        else:
+            subprocess.run(["ipconfig", "/flushdns"], capture_output=True, timeout=10)
+            return True
     except Exception:
         return False
 
@@ -149,17 +163,9 @@ def get_hosts_status():
     if content is None:
         return "error", 0
     if MARKER_BEGIN in content:
-        lines = content.splitlines()
-        inside = False
-        domain_count = 0
-        for line in lines:
-            if MARKER_BEGIN in line:
-                inside = True
-                continue
-            if MARKER_END in line:
-                inside = False
-                continue
-            if inside and line.startswith("0.0.0.0"):
-                domain_count += 1
+        domain_count = sum(
+            1 for line in content.splitlines()
+            if line.startswith("0.0.0.0") and MARKER_BEGIN not in line
+        )
         return "active", domain_count
     return "inactive", 0

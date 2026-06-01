@@ -23,6 +23,10 @@ SESSION_HOURS = 8
 # Routes that don't require login
 PUBLIC_ROUTES = {"/login", "/favicon.ico"}
 
+# Only the admin (settings-based) can log in — multi-user auth_users table
+# entries are stored but cannot log in through the standard login flow.
+# This enforces single-admin control over all GUI operations.
+
 # ── Login rate limiting ───────────────────────────────────────────────────────
 _login_attempts: dict = {}   # {ip: [datetime, ...]}
 _LOGIN_MAX = 10
