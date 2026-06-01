@@ -92,21 +92,26 @@ def scan_directory(path, recursive=True):
 
 def get_stats():
     stats = dict(_scan_stats)
-    stats["available"]        = is_clamav_available()
-    stats["version"]          = get_clamav_version()
-    stats["definitions_date"] = get_definitions_date()
+    stats["available"] = is_clamav_available()
+    # Parse "ClamAV 1.4.0/27523/Thu Nov 14 08:12:05 2024" format
+    ok, ver_out, _ = run(["clamscan", "--version"])
+    raw = ver_out.split("\n")[0] if ok else ""
+    stats["version"]    = raw.split("/")[0].strip() if raw else "Not installed"
+    stats["db_version"] = raw.split("/")[1].strip() if raw and raw.count("/") >= 1 else "—"
+    stats["db_updated"] = raw.split("/")[2].strip() if raw and raw.count("/") >= 2 else "—"
+    stats["definitions_date"] = stats["db_updated"]
+    stats["db_path"]    = "/var/lib/clamav"
+    # Signature count from freshclam log or sigtool
+    try:
+        ok2, out2, _ = run(["sigtool", "--info", "/var/lib/clamav/daily.cvd"])
+        if not ok2:
+            ok2, out2, _ = run(["sigtool", "--info", "/var/lib/clamav/daily.cld"])
+        sigs = 0
+        for line in out2.splitlines():
+            if "Signatures:" in line:
+                sigs = int(line.split(":")[1].strip())
+                break
+        stats["signatures"] = f"{sigs:,}" if sigs else "—"
+    except Exception:
+        stats["signatures"] = "—"
     return stats
-
-
-def get_clamav_version():
-    ok, out, _ = run(["clamscan", "--version"])
-    return out.split("\n")[0] if ok else "Not installed"
-
-
-def get_definitions_date():
-    ok, out, _ = run(["sigtool", "--info", "/var/lib/clamav/main.cvd"])
-    if ok:
-        for line in out.splitlines():
-            if "Build time" in line:
-                return line.split(":", 1)[1].strip()
-    return "Unknown"

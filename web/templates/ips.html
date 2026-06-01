@@ -20,8 +20,29 @@
     <div class="label">Active Signatures</div>
   </div>
   <div class="stat-card orange">
-    <div class="value">{{ signatures|rejectattr('enabled')|list|length }}</div>
-    <div class="label">Disabled Signatures</div>
+    <div class="value" id="blocked-count">0</div>
+    <div class="label">Auto-Blocked IPs</div>
+  </div>
+</div>
+
+<!-- Auto-Blocked IPs -->
+<div class="card" id="blocked-card">
+  <div class="card-header">
+    <div>
+      <div class="card-title">Auto-Blocked IPs</div>
+      <div class="card-sub">IPs automatically blocked by IPS — HIGH: 10 min, CRITICAL: 60 min</div>
+    </div>
+    <button class="btn btn-secondary btn-sm" onclick="loadBlocked()">Refresh</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>IP Address</th><th>Action</th></tr>
+      </thead>
+      <tbody id="blocked-tbody">
+        <tr><td colspan="2" class="text-muted" style="text-align:center;padding:20px">No IPs currently blocked</td></tr>
+      </tbody>
+    </table>
   </div>
 </div>
 
@@ -32,31 +53,18 @@
       <div class="card-title">IPS Signatures</div>
       <div class="card-sub">{{ signatures|length }} signature(s) loaded · Pattern-based intrusion detection</div>
     </div>
+    <select class="form-control" id="sev-filter" onchange="filterBySeverity()" style="max-width:150px">
+      <option value="">All Severities</option>
+      <option value="CRITICAL">CRITICAL</option>
+      <option value="HIGH">HIGH</option>
+      <option value="MEDIUM">MEDIUM</option>
+    </select>
   </div>
-
-  <div class="toolbar">
-    <input id="search-input" class="form-control" style="max-width:260px" placeholder="Search signatures...">
-    <div class="toolbar-right">
-      <select class="form-control" id="sev-filter" onchange="filterBySeverity()" style="max-width:140px">
-        <option value="">All Severities</option>
-        <option value="CRITICAL">CRITICAL</option>
-        <option value="HIGH">HIGH</option>
-        <option value="MEDIUM">MEDIUM</option>
-        <option value="LOW">LOW</option>
-      </select>
-    </div>
-  </div>
-
   <div class="table-wrap">
     <table id="main-table">
       <thead>
         <tr>
-          <th>ID</th>
-          <th>Name</th>
-          <th>Category</th>
-          <th>Severity</th>
-          <th>Pattern</th>
-          <th>Status</th>
+          <th>ID</th><th>Name</th><th>Severity</th><th>Description</th><th>Status</th>
         </tr>
       </thead>
       <tbody>
@@ -65,13 +73,8 @@
         <tr id="sig-{{ sig.id }}">
           <td class="font-mono text-muted">{{ sig.id }}</td>
           <td>{{ sig.name }}</td>
-          <td><span class="badge badge-info">{{ sig.category }}</span></td>
-          <td>
-            <span class="badge badge-{{ sev_class.get(sig.severity, 'info') }}">{{ sig.severity }}</span>
-          </td>
-          <td class="font-mono" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ sig.pattern }}">
-            {{ sig.pattern }}
-          </td>
+          <td><span class="badge badge-{{ sev_class.get(sig.severity, 'info') }}">{{ sig.severity }}</span></td>
+          <td class="text-muted">{{ sig.description }}</td>
           <td>
             <span class="badge badge-{{ 'allow' if sig.enabled else 'disabled' }}">
               {{ 'Enabled' if sig.enabled else 'Disabled' }}
@@ -80,9 +83,7 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="6" class="text-muted" style="text-align:center;padding:30px">
-            No IPS signatures loaded. Signatures are loaded automatically on startup.
-          </td>
+          <td colspan="5" class="text-muted" style="text-align:center;padding:30px">No IPS signatures loaded.</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -90,12 +91,12 @@
   </div>
 </div>
 
-<!-- Live Alerts Table -->
+<!-- Live Alerts -->
 <div class="card">
   <div class="card-header">
     <div>
       <div class="card-title">Live Security Alerts</div>
-      <div class="card-sub">Real-time intrusion detection events · Auto-refreshes every 4 seconds</div>
+      <div class="card-sub">Real-time intrusion detection · Auto-refreshes every 4 seconds</div>
     </div>
     <div class="btn-group">
       <button class="btn btn-secondary btn-sm" onclick="refreshAlerts()">Refresh</button>
@@ -106,11 +107,8 @@
     <table>
       <thead>
         <tr>
-          <th>Timestamp</th>
-          <th>Severity</th>
-          <th>Signature</th>
-          <th>Source IP</th>
-          <th>Detail</th>
+          <th>Timestamp</th><th>Severity</th><th>Signature</th>
+          <th>Source IP</th><th>Detail</th><th>Action</th>
         </tr>
       </thead>
       <tbody id="alert-tbody">
@@ -122,10 +120,17 @@
           <td>{{ a.name }}</td>
           <td class="font-mono">{{ a.remote_ip }}</td>
           <td class="text-muted">{{ a.detail }}</td>
+          <td>
+            {% if a.blocked %}
+            <span class="badge badge-critical" title="IP auto-blocked">Blocked</span>
+            {% else %}
+            <span class="text-muted">—</span>
+            {% endif %}
+          </td>
         </tr>
         {% else %}
-        <tr>
-          <td colspan="5" class="text-muted" style="text-align:center;padding:20px">No alerts detected. System is monitoring traffic.</td>
+        <tr id="no-alerts-row">
+          <td colspan="6" class="text-muted" style="text-align:center;padding:20px">No alerts detected.</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -136,15 +141,69 @@
 
 {% block extra_js %}
 <script>
+const SEV_CLASS = {CRITICAL:'critical', HIGH:'high', MEDIUM:'med', LOW:'info'};
+
+async function loadBlocked() {
+  try {
+    const r = await fetch('/api/ips/blocked');
+    const data = await r.json();
+    const ips = data.blocked || [];
+    document.getElementById('blocked-count').textContent = ips.length;
+    const tbody = document.getElementById('blocked-tbody');
+    if (!ips.length) {
+      tbody.innerHTML = '<tr><td colspan="2" class="text-muted" style="text-align:center;padding:20px">No IPs currently blocked</td></tr>';
+      return;
+    }
+    tbody.innerHTML = ips.map(ip => `
+      <tr id="blocked-${ip.replace(/\./g,'_')}">
+        <td class="font-mono">${ip}</td>
+        <td><button class="btn btn-secondary btn-sm" onclick="unblockIP('${ip}')">Unblock</button></td>
+      </tr>`).join('');
+  } catch(e) {}
+}
+
+async function unblockIP(ip) {
+  try {
+    await POST('/api/ips/unblock/' + ip);
+    toast('Unblocked ' + ip, 'success');
+    loadBlocked();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function refreshAlerts() {
+  try {
+    const data = await (await fetch('/api/ips/alerts')).json();
+    document.getElementById('alert-count').textContent = data.length;
+    const tbody = document.getElementById('alert-tbody');
+    if (!data.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-muted" style="text-align:center;padding:20px">No alerts detected.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.map(a => {
+      const cls = SEV_CLASS[a.severity] || 'info';
+      const ts  = (a.timestamp||'').slice(0,19).replace('T',' ');
+      const blocked = a.blocked ? '<span class="badge badge-critical">Blocked</span>' : '<span class="text-muted">—</span>';
+      return `<tr>
+        <td class="font-mono text-muted">${ts}</td>
+        <td><span class="badge badge-${cls}">${a.severity}</span></td>
+        <td>${a.name}</td>
+        <td class="font-mono">${a.remote_ip}</td>
+        <td class="text-muted">${a.detail}</td>
+        <td>${blocked}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) {}
+}
+
 async function clearAlerts() {
   if (!confirm2('Clear all IPS alerts?')) return;
   try {
     await POST('/api/ips/clear');
     document.getElementById('alert-tbody').innerHTML =
-      '<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">No alerts detected. System is monitoring traffic.</td></tr>';
+      '<tr><td colspan="6" class="text-muted" style="text-align:center;padding:20px">No alerts detected.</td></tr>';
     document.getElementById('alert-count').textContent = '0';
     toast('Alerts cleared', 'success');
-  } catch (e) { toast('Error: ' + e.message, 'error'); }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
 function filterBySeverity() {
@@ -153,5 +212,9 @@ function filterBySeverity() {
     row.style.display = (!val || row.textContent.toLowerCase().includes(val)) ? '' : 'none';
   });
 }
+
+// Auto-refresh every 4 seconds
+loadBlocked();
+setInterval(() => { refreshAlerts(); loadBlocked(); }, 4000);
 </script>
 {% endblock %}
