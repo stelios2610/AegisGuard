@@ -1,22 +1,42 @@
-"""Web Filter - domain/URL blocking via hosts file (Linux/Windows)."""
+"""Web Filter - domain blocking via dnsmasq (Linux) or hosts file (Windows)."""
 import os
 import re
 import subprocess
 from db import database
-from core.platform import IS_LINUX
+from core.platform import IS_LINUX, run
 
-HOSTS_PATH = "/etc/hosts" if IS_LINUX else r"C:\Windows\System32\drivers\etc\hosts"
-MARKER_BEGIN = "# AegisGuard Web Filter BEGIN"
-MARKER_END   = "# AegisGuard Web Filter END"
+HOSTS_PATH      = "/etc/hosts" if IS_LINUX else r"C:\Windows\System32\drivers\etc\hosts"
+DNSMASQ_FILTER  = "/etc/dnsmasq.d/aegisguard-filter.conf"
+MARKER_BEGIN    = "# AegisGuard Web Filter BEGIN"
+MARKER_END      = "# AegisGuard Web Filter END"
 
 BUILTIN_CATEGORIES = {
     "Adult Content": [
         "pornhub.com", "xvideos.com", "xnxx.com", "redtube.com", "youporn.com",
         "tube8.com", "xhamster.com", "beeg.com", "brazzers.com", "hentai.tv",
+        "porn.com", "sex.com", "adult.com", "xxx.com",
     ],
     "Gambling": [
         "bet365.com", "pokerstars.com", "888casino.com", "betway.com",
         "draftkings.com", "fanduel.com", "caesarsonline.com", "unibet.com",
+        "paddypower.com", "williamhill.com", "ladbrokes.com", "bwin.com",
+    ],
+    "Social Media": [
+        "facebook.com", "instagram.com", "twitter.com", "x.com",
+        "tiktok.com", "snapchat.com", "pinterest.com", "linkedin.com",
+        "reddit.com", "tumblr.com", "discord.com", "telegram.org",
+        "whatsapp.com", "threads.net", "mastodon.social", "vk.com",
+    ],
+    "Streaming": [
+        "netflix.com", "youtube.com", "twitch.tv", "hulu.com",
+        "disneyplus.com", "primevideo.com", "spotify.com", "soundcloud.com",
+        "vimeo.com", "dailymotion.com", "crunchyroll.com", "hbomax.com",
+        "peacocktv.com", "paramountplus.com", "appletv.apple.com",
+    ],
+    "Gaming": [
+        "store.steampowered.com", "battle.net", "epicgames.com",
+        "roblox.com", "minecraft.net", "origin.com", "ubisoft.com",
+        "gog.com", "itch.io", "xbox.com",
     ],
     "Malware": [
         "malware-domain.com", "ransomware.site", "cryptolocker.biz",
@@ -25,14 +45,66 @@ BUILTIN_CATEGORIES = {
     "Phishing": [
         "phishing-example.com", "fake-paypal.com", "secure-login-update.com",
     ],
+    "Anonymizers": [
+        "hidemyass.com", "vpnbook.com", "hotspotshield.com",
+        "torproject.org", "proxyfree.com", "proxysite.com",
+        "hide.me", "tunnelbear.com", "protonvpn.com",
+    ],
+    "Hacking": [
+        "exploitdb.com", "hackforums.net", "nulled.to",
+        "crackingking.com", "hackthissite.org",
+    ],
     "Ads & Tracking": [
         "doubleclick.net", "googleadservices.com", "googlesyndication.com",
         "scorecardresearch.com", "quantserve.com", "adnxs.com", "adsrvr.org",
         "moatads.com", "outbrain.com", "taboola.com", "advertising.com",
         "ads.yahoo.com", "cdn.taboola.com", "pixel.advertising.com",
+        "criteo.com", "pubmatic.com", "rubiconproject.com",
     ],
 }
 
+
+def _get_blocked_domains():
+    """Collect all enabled blocked domains from categories + custom filters."""
+    blocked = set()
+    categories = {c["name"]: c["enabled"] for c in database.get_web_categories()}
+    for cat, domains in BUILTIN_CATEGORIES.items():
+        if categories.get(cat, 1):
+            blocked.update(domains)
+    for f in database.get_web_filters():
+        if f["enabled"] and f["action"] == "BLOCK":
+            pattern = re.sub(r"^https?://", "", f["pattern"].strip().lower()).split("/")[0]
+            if pattern:
+                blocked.add(pattern)
+    return blocked
+
+
+# ── dnsmasq filter (Linux primary method) ────────────────────────────────────
+
+def _write_dnsmasq_filter(domains):
+    """Write /etc/dnsmasq.d/aegisguard-filter.conf with address= entries."""
+    lines = ["# AegisGuard Web Filter — auto-generated", ""]
+    for domain in sorted(domains):
+        lines.append(f"address=/{domain}/0.0.0.0")
+        lines.append(f"address=/{domain}/::")   # IPv6
+    try:
+        with open(DNSMASQ_FILTER, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        return True, f"{len(domains)} domains written to dnsmasq"
+    except Exception as e:
+        return False, str(e)
+
+
+def _remove_dnsmasq_filter():
+    try:
+        if os.path.isfile(DNSMASQ_FILTER):
+            os.unlink(DNSMASQ_FILTER)
+        return True, "dnsmasq filter removed"
+    except Exception as e:
+        return False, str(e)
+
+
+# ── hosts file (fallback / Windows) ──────────────────────────────────────────
 
 def _read_hosts():
     try:
@@ -57,115 +129,99 @@ def _write_hosts(content):
 
 
 def _strip_aegisguard_block(content):
-    lines = content.splitlines(keepends=True)
-    result = []
-    inside = False
+    lines, result, inside = content.splitlines(keepends=True), [], False
     for line in lines:
         if MARKER_BEGIN in line:
-            inside = True
-            continue
+            inside = True; continue
         if MARKER_END in line:
-            inside = False
-            continue
+            inside = False; continue
         if not inside:
             result.append(line)
     return "".join(result)
 
 
-def apply_filters():
-    """Write all enabled blocked domains to the hosts file."""
-    if database.get_setting("web_filter_enabled", "1") != "1":
-        return remove_filters()
-
-    if database.get_setting("web_filter_use_hosts", "1") != "1":
-        return True, "Hosts-file mode disabled"
-
-    filters = database.get_web_filters()
-    blocked_domains = set()
-
-    categories = {c["name"]: c["enabled"] for c in database.get_web_categories()}
-    for cat, domains in BUILTIN_CATEGORIES.items():
-        if categories.get(cat, 1):
-            blocked_domains.update(domains)
-
-    for f in filters:
-        if f["enabled"] and f["action"] == "BLOCK":
-            pattern = f["pattern"].strip().lower()
-            pattern = re.sub(r"^https?://", "", pattern)
-            pattern = pattern.split("/")[0]
-            if pattern:
-                blocked_domains.add(pattern)
-
+def _write_hosts_filter(domains):
     current = _read_hosts()
     if current is None:
         return False, "Cannot read hosts file (permission denied)"
-
     clean = _strip_aegisguard_block(current)
     if not clean.endswith("\n"):
         clean += "\n"
-
     block_lines = [f"\n{MARKER_BEGIN}\n"]
-    for domain in sorted(blocked_domains):
+    for domain in sorted(domains):
         block_lines.append(f"0.0.0.0 {domain}\n")
         block_lines.append(f"0.0.0.0 www.{domain}\n")
     block_lines.append(f"{MARKER_END}\n")
+    return _write_hosts(clean + "".join(block_lines))
 
-    new_content = clean + "".join(block_lines)
-    ok, msg = _write_hosts(new_content)
+
+# ── Public API ────────────────────────────────────────────────────────────────
+
+def apply_filters():
+    """Apply web filter. On Linux: dnsmasq + hosts. On Windows: hosts only."""
+    if database.get_setting("web_filter_enabled", "1") != "1":
+        return remove_filters()
+
+    domains = _get_blocked_domains()
+
+    if IS_LINUX:
+        ok, msg = _write_dnsmasq_filter(domains)
+        # Also write hosts file (serves local resolution + dnsmasq)
+        _write_hosts_filter(domains)
+        # Restart dnsmasq to pick up new config
+        run(["systemctl", "restart", "dnsmasq"])
+        database.add_log("INFO", details=f"Web filter applied: {len(domains)} domains blocked via dnsmasq")
+        return ok, msg
+
+    ok, msg = _write_hosts_filter(domains)
     if ok:
-        database.add_log("INFO", details=f"Web filter applied: {len(blocked_domains)} domains blocked")
+        database.add_log("INFO", details=f"Web filter applied: {len(domains)} domains blocked via hosts file")
     return ok, msg
 
 
 def remove_filters():
-    """Remove AegisGuard block from hosts file."""
+    """Remove web filter."""
+    if IS_LINUX:
+        _remove_dnsmasq_filter()
+        run(["systemctl", "restart", "dnsmasq"])
     current = _read_hosts()
-    if current is None:
-        return False, "Cannot read hosts file"
-    clean = _strip_aegisguard_block(current)
-    return _write_hosts(clean)
+    if current:
+        _write_hosts(_strip_aegisguard_block(current))
+    database.add_log("INFO", details="Web filter removed")
+    return True, "Web filter removed"
 
 
 def flush_dns():
-    """Flush DNS cache — cross-platform."""
+    """Flush DNS cache."""
     try:
         if IS_LINUX:
-            for cmd in [
-                ["resolvectl", "flush-caches"],
-                ["systemd-resolve", "--flush-caches"],
-            ]:
-                r = subprocess.run(cmd, capture_output=True, timeout=5)
-                if r.returncode == 0:
-                    return True
-            # Fallback: reload dnsmasq if running
-            subprocess.run(["systemctl", "reload", "dnsmasq"],
-                           capture_output=True, timeout=5)
+            run(["systemctl", "restart", "dnsmasq"])
+            for cmd in [["resolvectl", "flush-caches"], ["systemd-resolve", "--flush-caches"]]:
+                subprocess.run(cmd, capture_output=True, timeout=5)
             return True
-        else:
-            subprocess.run(["ipconfig", "/flushdns"], capture_output=True, timeout=10)
-            return True
+        subprocess.run(["ipconfig", "/flushdns"], capture_output=True, timeout=10)
+        return True
     except Exception:
         return False
 
 
 def get_blocked_count():
-    filters = database.get_web_filters()
-    categories = {c["name"]: c["enabled"] for c in database.get_web_categories()}
-    count = sum(1 for f in filters if f["enabled"] and f["action"] == "BLOCK")
-    for cat, domains in BUILTIN_CATEGORIES.items():
-        if categories.get(cat, 1):
-            count += len(domains)
-    return count
+    return len(_get_blocked_domains())
 
 
 def get_hosts_status():
+    if IS_LINUX and os.path.isfile(DNSMASQ_FILTER):
+        try:
+            lines = [l for l in open(DNSMASQ_FILTER).readlines() if l.startswith("address=")]
+            # Each domain has 2 lines (IPv4 + IPv6), count unique domains
+            domains = len(lines) // 2
+            return "active", domains
+        except Exception:
+            pass
     content = _read_hosts()
     if content is None:
         return "error", 0
     if MARKER_BEGIN in content:
-        domain_count = sum(
-            1 for line in content.splitlines()
-            if line.startswith("0.0.0.0") and MARKER_BEGIN not in line
-        )
-        return "active", domain_count
+        count = sum(1 for l in content.splitlines() if l.startswith("0.0.0.0"))
+        return "active", count
     return "inactive", 0
