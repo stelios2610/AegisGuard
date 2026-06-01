@@ -150,7 +150,7 @@ async def login_submit(request: Request,
         response = RedirectResponse(url=safe_next, status_code=302)
         response.set_cookie(
             COOKIE_NAME, token,
-            httponly=True, samesite="lax",
+            httponly=True, samesite="lax", secure=True,
             max_age=SESSION_HOURS * 3600
         )
         return response
