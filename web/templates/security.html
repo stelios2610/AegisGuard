@@ -263,8 +263,8 @@
           <tr id="dlp-row-{{ p.id }}">
             <td>{{ p.name }}</td>
             <td class="font-mono" style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis" title="{{ p.pattern }}">{{ p.pattern }}</td>
-            <td><span class="badge badge-info">{{ p.category or 'General' }}</span></td>
-            <td><span class="badge badge-{{ 'block' if p.action == 'BLOCK' else 'warn' }}">{{ p.action or 'ALERT' }}</span></td>
+            <td><span class="badge badge-info">{{ p.severity or 'MEDIUM' }}</span></td>
+            <td><span class="badge badge-warn">ALERT</span></td>
             <td>
               <label style="cursor:pointer">
                 <input type="checkbox" {{ 'checked' if p.enabled }} onchange="toggleDLP({{ p.id }}, this.checked)">
@@ -315,21 +315,14 @@
         <input class="form-control font-mono" id="dlp-pattern" placeholder="e.g. \b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b">
         <small class="text-muted">Python-compatible regular expression</small>
       </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Category</label>
-          <select class="form-control" id="dlp-category">
-            <option>PCI</option><option>PII</option><option>PHI</option>
-            <option>Credentials</option><option>Financial</option><option>General</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Action</label>
-          <select class="form-control" id="dlp-action">
-            <option value="ALERT">ALERT (log only)</option>
-            <option value="BLOCK">BLOCK (block transmission)</option>
-          </select>
-        </div>
+      <div class="form-group">
+        <label class="form-label">Severity</label>
+        <select class="form-control" id="dlp-severity">
+          <option value="CRITICAL">CRITICAL</option>
+          <option value="HIGH">HIGH</option>
+          <option value="MEDIUM" selected>MEDIUM</option>
+          <option value="LOW">LOW</option>
+        </select>
       </div>
       <div class="form-group">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
@@ -390,16 +383,18 @@ async function checkIP() {
   const ip = document.getElementById('check-ip-input').value.trim();
   if (!ip) { toast('Enter an IP address to check', 'error'); return; }
   try {
-    const r = await GET(`/api/security/reputation/check?ip=${encodeURIComponent(ip)}`);
+    const r = await POST('/api/security/reputation/check', { ip });
     const resultEl = document.getElementById('ip-check-result');
     const msgEl = document.getElementById('ip-check-msg');
     resultEl.style.display = '';
+    const geo = r.geo ? ` · ${r.geo.country || ''} ${r.geo.city || ''} (${r.geo.isp || ''})` : '';
+    const proxy = r.geo && r.geo.proxy ? ' · ⚠️ Proxy/VPN detected' : '';
     if (r.blocked) {
       msgEl.className = 'alert alert-danger';
-      msgEl.textContent = `${ip} is in the blocklist (${r.reason || 'Known malicious IP'})`;
+      msgEl.textContent = `${ip} is in the BLOCKLIST — Known malicious IP${geo}${proxy}`;
     } else {
       msgEl.className = 'alert alert-success';
-      msgEl.textContent = `${ip} is NOT in the blocklist — no known threats`;
+      msgEl.textContent = `${ip} is NOT in the blocklist${geo}${proxy}`;
     }
   } catch (e) { toast('Check error: ' + e.message, 'error'); }
 }
@@ -420,7 +415,7 @@ async function saveDDoSConfig() {
 
 async function unblockDDoSIP(ip) {
   try {
-    await POST('/api/security/ddos/unblock', { ip });
+    await POST(`/api/security/ddos/unblock/${ip}`);
     toast(`${ip} unblocked`, 'success');
     setTimeout(() => location.reload(), 600);
   } catch (e) { toast('Error: ' + e.message, 'error'); }
@@ -480,10 +475,10 @@ async function scanFile() {
   try {
     const res = await fetch('/api/security/av/scan', { method: 'POST', body: formData });
     const r = await res.json();
-    if (r.infected) {
-      resultEl.innerHTML = `<div class="alert alert-danger">INFECTED: ${r.virus_name || 'Unknown virus'} detected in ${file.name}</div>`;
+    if (!r.clean) {
+      resultEl.innerHTML = `<div class="alert alert-danger">⚠️ THREAT DETECTED: <strong>${r.threat || 'Unknown malware'}</strong> in ${file.name}</div>`;
     } else {
-      resultEl.innerHTML = `<div class="alert alert-success">CLEAN: No threats found in ${file.name}</div>`;
+      resultEl.innerHTML = `<div class="alert alert-success">✅ CLEAN: No threats found in ${file.name}</div>`;
     }
   } catch (e) {
     resultEl.innerHTML = `<div class="alert alert-danger">Scan error: ${e.message}</div>`;
@@ -498,18 +493,21 @@ async function scanDLPText() {
   resultEl.style.display = '';
   resultEl.innerHTML = '<div class="alert alert-info">Scanning...</div>';
   try {
-    const r = await POST('/api/security/dlp/scan', { text });
-    if (!r.matches || r.matches.length === 0) {
-      resultEl.innerHTML = '<div class="alert alert-success">No sensitive data patterns detected.</div>';
+    const r = await POST('/api/security/dlp/scan', { content: text });
+    const findings = r.findings || [];
+    if (findings.length === 0) {
+      resultEl.innerHTML = '<div class="alert alert-success">✅ No sensitive data patterns detected.</div>';
     } else {
-      const rows = r.matches.map(m =>
-        `<tr><td>${m.pattern_name}</td><td><span class="badge badge-info">${m.category}</span></td>
-         <td><span class="badge badge-${m.action === 'BLOCK' ? 'block' : 'warn'}">${m.action}</span></td>
-         <td class="font-mono" style="font-size:11px">${m.match_preview || '—'}</td></tr>`
+      const sevClass = {CRITICAL:'critical',HIGH:'high',MEDIUM:'med',LOW:'info'};
+      const rows = findings.map(m =>
+        `<tr><td>${m.pattern}</td>
+         <td><span class="badge badge-${sevClass[m.severity]||'info'}">${m.severity}</span></td>
+         <td class="font-mono">${m.count}</td>
+         <td class="font-mono" style="font-size:11px">${(m.samples||[]).join(', ') || '—'}</td></tr>`
       ).join('');
-      resultEl.innerHTML = `<div class="alert alert-danger" style="margin-bottom:8px">${r.matches.length} sensitive data pattern(s) detected!</div>
+      resultEl.innerHTML = `<div class="alert alert-danger" style="margin-bottom:8px">⚠️ ${findings.length} sensitive pattern type(s) detected!</div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Pattern</th><th>Category</th><th>Action</th><th>Preview</th></tr></thead>
+          <thead><tr><th>Pattern</th><th>Severity</th><th>Matches</th><th>Samples</th></tr></thead>
           <tbody>${rows}</tbody>
         </table></div>`;
     }
@@ -524,8 +522,7 @@ async function saveDLP() {
   if (!name || !pattern) { toast('Name and pattern are required', 'error'); return; }
   const data = {
     name, pattern,
-    category: document.getElementById('dlp-category').value,
-    action: document.getElementById('dlp-action').value,
+    severity: document.getElementById('dlp-severity').value,
     enabled: document.getElementById('dlp-enabled').checked ? 1 : 0,
   };
   try {
