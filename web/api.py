@@ -32,11 +32,11 @@ reputation.init()
 multiwan_manager.start()
 ha_manager.start_sync()
 
-# Ensure AEGISGUARD iptables chains exist at startup (Linux only)
+# Ensure AEGISGUARD iptables chains exist at startup with safe base rules
 from core.platform import IS_LINUX as _IS_LINUX
 if _IS_LINUX:
     try:
-        rules_engine.sync_all_rules()
+        rules_engine._ensure_chains()
     except Exception:
         pass
 

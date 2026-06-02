@@ -127,6 +127,15 @@ def _ensure_chains():
     for chain in ("INPUT", "OUTPUT", "FORWARD"):
         ag_chain = f"{CHAIN_PREFIX}_{chain}"
         _ipt(["-N", ag_chain])
+        # Always ensure ESTABLISHED/RELATED is rule #1 in each chain
+        # so that reply packets are never blocked regardless of other rules.
+        # Flush first to avoid duplicates, then re-add as rule 1.
+        _ipt(["-F", ag_chain])
+        _ipt(["-I", ag_chain, "1",
+              "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"])
+        # Also always allow loopback in INPUT
+        if chain == "INPUT":
+            _ipt(["-I", ag_chain, "2", "-i", "lo", "-j", "ACCEPT"])
         # Jump from main chain if not already there
         ok, out, _ = run(["iptables", "-C", chain, "-j", ag_chain])
         if not ok:
