@@ -32,6 +32,14 @@ reputation.init()
 multiwan_manager.start()
 ha_manager.start_sync()
 
+# Ensure AEGISGUARD iptables chains exist at startup (Linux only)
+from core.platform import IS_LINUX as _IS_LINUX
+if _IS_LINUX:
+    try:
+        rules_engine.sync_all_rules()
+    except Exception:
+        pass
+
 # ── Background log pruning (every hour, 2 GB limit) ──────────────────────────
 import threading as _threading
 
