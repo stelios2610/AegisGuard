@@ -19,7 +19,7 @@ from core import (monitor, ips, rules_engine, web_filter, app_control,
                   vpn_manager, network_manager, gateway_av, reputation,
                   spam_filter, network_discovery, dlp, vpn_keygen, mfa,
                   ssl_vpn, bov_manager)
-from core.platform import IS_LINUX, is_root
+from core.platform import IS_LINUX, is_root, run
 from core import multiwan_manager, ha_manager
 from core.ipsec_manager import (create_ipsec_tunnel, remove_ipsec_tunnel,
                                  get_ipsec_tunnels, get_ipsec_sa, generate_psk)
