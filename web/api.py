@@ -748,17 +748,14 @@ async def api_set_public_ip(request: Request):
 
 @app.get("/api/vpn/openvpn/detect-ip")
 async def api_detect_public_ip():
-    import httpx
-    for url in ["https://api.ipify.org", "https://ifconfig.me", "https://icanhazip.com"]:
-        try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                r = await client.get(url)
-                ip = r.text.strip()
-                if ip:
-                    return {"public_ip": ip}
-        except Exception:
-            continue
-    raise HTTPException(500, "Cannot detect public IP")
+    # Use curl — no extra dependencies needed
+    for service in ["ifconfig.me", "api.ipify.org", "icanhazip.com"]:
+        ok, ip, _ = run(["curl", "-s", "--max-time", "5", "--connect-timeout", "4",
+                          f"https://{service}"])
+        ip = ip.strip() if ip else ""
+        if ok and ip and len(ip) <= 45:  # valid IPv4/IPv6 length
+            return {"public_ip": ip}
+    raise HTTPException(500, "Cannot detect public IP — check internet connection")
 
 # ── OpenVPN Server Start / Stop ───────────────────────────────────────────────
 
@@ -766,37 +763,53 @@ async def api_detect_public_ip():
 async def api_ovpn_server_status():
     if not IS_LINUX:
         return {"status": "unknown", "active": False}
-    ok, out, _ = run(["systemctl", "is-active", "openvpn@server"])
-    active = out.strip() == "active"
+    _, out, _ = run(["systemctl", "is-active", "openvpn@server"])
+    active = (out.strip() == "active")
     _, out2, _ = run(["systemctl", "status", "openvpn@server", "--no-pager", "-l"])
-    return {"status": out.strip(), "active": active, "details": (out2 or "")[:500]}
+    return {"status": out.strip() or "inactive", "active": active,
+            "details": (out2 or "")[:500]}
 
 @app.post("/api/vpn/openvpn/server/start")
 async def api_ovpn_server_start():
     if not IS_LINUX:
         return {"status": "error", "message": "Linux only"}
-    import os as _os
-    conf_path = "/etc/openvpn/server/server.conf"
+
     pki_dir = "/etc/aegisguard/pki"
+    conf_path = "/etc/openvpn/server/server.conf"
+
+    # Must have PKI first
+    import os as _os
+    ca_ok = _os.path.exists(f"{pki_dir}/ca.crt")
+    if not ca_ok:
+        return {"status": "error",
+                "message": "PKI not found. Go to OpenVPN PKI tab and click 'Generate PKI' first."}
+
+    # Write server.conf if missing
     if not _os.path.exists(conf_path):
-        _os.makedirs("/etc/openvpn/server", exist_ok=True)
-        conf = vpn_keygen.generate_openvpn_server_config(pki_dir)
-        with open(conf_path, "w") as f:
-            f.write(conf)
+        try:
+            _os.makedirs("/etc/openvpn/server", exist_ok=True)
+            conf = vpn_keygen.generate_openvpn_server_config(pki_dir)
+            with open(conf_path, "w") as f:
+                f.write(conf)
+        except Exception as e:
+            return {"status": "error", "message": f"Cannot write config: {e}"}
+
     ok, out, err = run(["systemctl", "enable", "--now", "openvpn@server"])
+    msg = (out or err or "").strip()
     if ok:
         _auto_vpn_rules("OpenVPN", "UDP", "1194")
         database.add_log("INFO", details="OpenVPN server started")
-        return {"status": "ok", "message": "OpenVPN server started"}
-    return {"status": "error", "message": err or out}
+        return {"status": "ok", "message": "OpenVPN server started successfully"}
+    return {"status": "error", "message": msg or "Failed to start — check server.conf and PKI files"}
 
 @app.post("/api/vpn/openvpn/server/stop")
 async def api_ovpn_server_stop():
     if not IS_LINUX:
         return {"status": "error", "message": "Linux only"}
     ok, out, err = run(["systemctl", "stop", "openvpn@server"])
+    msg = (out or err or "stopped").strip()
     database.add_log("INFO", details="OpenVPN server stopped")
-    return {"status": "ok" if ok else "error", "message": out or err or "stopped"}
+    return {"status": "ok" if ok else "error", "message": msg}
 
 # ─────────────────────────────────────────────────────────────────────────────
 

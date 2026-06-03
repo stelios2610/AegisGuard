@@ -550,61 +550,113 @@ async function saveSSLConfig() {
   toast('Config saved', 'success');
 }
 // ── Public IP + OpenVPN Server ─────────────────────────────────────────────
-async function loadPublicIPState() {
+async function safeGet(url) {
   try {
-    const r = await GET('/api/vpn/openvpn/public-ip');
-    if (r.public_ip) document.getElementById('public-ip-input').value = r.public_ip;
-    const s = await GET('/api/vpn/openvpn/server/status');
-    const badge = document.getElementById('ovpn-server-badge');
-    const det = document.getElementById('ovpn-details');
-    if (s.active) {
-      badge.className = 'badge badge-allow'; badge.textContent = 'Running';
-      document.getElementById('ovpn-start-btn').disabled = true;
-      document.getElementById('ovpn-stop-btn').disabled = false;
-    } else {
-      badge.className = 'badge badge-disabled'; badge.textContent = s.status || 'Stopped';
-      document.getElementById('ovpn-start-btn').disabled = false;
-      document.getElementById('ovpn-stop-btn').disabled = true;
+    const r = await fetch(url, {credentials: 'same-origin'});
+    if (!r.ok) return null;
+    return await r.json();
+  } catch(e) { return null; }
+}
+
+async function safePost(url, data) {
+  try {
+    const r = await fetch(url, {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: data ? JSON.stringify(data) : null
+    });
+    if (!r.ok) {
+      let msg = 'Server error ' + r.status;
+      try { const j = await r.json(); msg = j.detail || j.message || msg; } catch(e2) {}
+      return {status: 'error', message: msg};
     }
-    if (s.details) det.textContent = s.details.split('\n')[2] || '';
-  } catch(e) { console.warn('OpenVPN status:', e); }
+    return await r.json();
+  } catch(e) { return {status: 'error', message: e.message}; }
+}
+
+function setOvpnBadge(active, statusText) {
+  const badge = document.getElementById('ovpn-server-badge');
+  if (!badge) return;
+  badge.className = active ? 'badge badge-allow' : 'badge badge-disabled';
+  badge.textContent = active ? 'Running' : (statusText || 'Stopped');
+  const startBtn = document.getElementById('ovpn-start-btn');
+  const stopBtn  = document.getElementById('ovpn-stop-btn');
+  if (startBtn) startBtn.disabled = active;
+  if (stopBtn)  stopBtn.disabled  = !active;
+}
+
+async function loadPublicIPState() {
+  const ipData = await safeGet('/api/vpn/openvpn/public-ip');
+  if (ipData && ipData.public_ip) {
+    const inp = document.getElementById('public-ip-input');
+    if (inp && !inp.value) inp.value = ipData.public_ip;
+  }
+  const s = await safeGet('/api/vpn/openvpn/server/status');
+  if (s) {
+    setOvpnBadge(s.active, s.status);
+    const det = document.getElementById('ovpn-details');
+    if (det && s.details) {
+      const line = (s.details.split('\n').find(l => l.includes('Active:')) || '').trim();
+      det.textContent = line;
+    }
+  } else {
+    setOvpnBadge(false, 'Unknown');
+  }
 }
 
 async function detectPublicIP() {
-  document.getElementById('public-ip-status').textContent = 'Detecting...';
-  try {
-    const r = await GET('/api/vpn/openvpn/detect-ip');
+  const statusEl = document.getElementById('public-ip-status');
+  statusEl.textContent = 'Detecting...';
+  statusEl.style.color = 'var(--text-muted)';
+  const r = await safeGet('/api/vpn/openvpn/detect-ip');
+  if (r && r.public_ip) {
     document.getElementById('public-ip-input').value = r.public_ip;
-    document.getElementById('public-ip-status').textContent = 'Detected: ' + r.public_ip;
-  } catch(e) { document.getElementById('public-ip-status').textContent = 'Failed: ' + e.message; }
+    statusEl.textContent = 'Detected: ' + r.public_ip;
+    statusEl.style.color = 'var(--green)';
+  } else {
+    statusEl.textContent = 'Detection failed — enter IP manually';
+    statusEl.style.color = 'var(--danger)';
+  }
 }
 
 async function savePublicIP() {
   const ip = document.getElementById('public-ip-input').value.trim();
   if (!ip) { toast('Enter an IP address first', 'error'); return; }
-  const r = await POST('/api/vpn/openvpn/public-ip', {public_ip: ip});
-  if (r.status === 'ok') {
+  const statusEl = document.getElementById('public-ip-status');
+  const r = await safePost('/api/vpn/openvpn/public-ip', {public_ip: ip});
+  if (r && r.status === 'ok') {
     toast('Public IP saved: ' + ip, 'success');
-    document.getElementById('public-ip-status').textContent = 'Saved!';
+    statusEl.textContent = 'Saved!';
+    statusEl.style.color = 'var(--green)';
   } else {
-    toast('Error saving IP', 'error');
+    toast('Error saving IP: ' + (r && r.message || 'unknown'), 'error');
   }
 }
 
 async function startOpenVPN() {
   const btn = document.getElementById('ovpn-start-btn');
   btn.disabled = true; btn.textContent = 'Starting...';
-  const r = await POST('/api/vpn/openvpn/server/start');
-  toast(r.message, r.status === 'ok' ? 'success' : 'error');
-  setTimeout(() => { loadPublicIPState(); btn.textContent = '▶ Start OpenVPN Server'; }, 2000);
+  const r = await safePost('/api/vpn/openvpn/server/start');
+  if (r && r.status === 'ok') {
+    toast(r.message || 'OpenVPN server started', 'success');
+  } else {
+    toast((r && r.message) || 'Failed to start OpenVPN', 'error');
+  }
+  setTimeout(() => {
+    btn.textContent = '▶ Start OpenVPN Server';
+    loadPublicIPState();
+  }, 2000);
 }
 
 async function stopOpenVPN() {
   const btn = document.getElementById('ovpn-stop-btn');
   btn.disabled = true; btn.textContent = 'Stopping...';
-  const r = await POST('/api/vpn/openvpn/server/stop');
-  toast(r.message, 'info');
-  setTimeout(() => { loadPublicIPState(); btn.textContent = '■ Stop OpenVPN Server'; }, 2000);
+  const r = await safePost('/api/vpn/openvpn/server/stop');
+  toast((r && r.message) || 'OpenVPN server stopped', 'info');
+  setTimeout(() => {
+    btn.textContent = '■ Stop OpenVPN Server';
+    loadPublicIPState();
+  }, 2000);
 }
 
 // Load on page open
