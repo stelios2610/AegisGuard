@@ -16,6 +16,37 @@
 
 <!-- SSL VPN TAB -->
 <div id="tab-ssl">
+
+  <!-- Public IP Card -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Public IP Address</div>
+        <div class="card-sub">Used in all client .ovpn configs. Update when your ISP changes your IP.</div>
+      </div>
+      <span id="ovpn-server-badge" class="badge badge-disabled">Loading...</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 20px">
+      <input class="form-control" id="public-ip-input" style="max-width:220px;font-family:monospace;font-size:15px;font-weight:600"
+             placeholder="e.g. 79.130.148.240" value="">
+      <button class="btn btn-secondary" onclick="detectPublicIP()" title="Auto-detect my current public IP">
+        🔍 Auto-detect
+      </button>
+      <button class="btn btn-success" onclick="savePublicIP()">
+        💾 Save
+      </button>
+      <span id="public-ip-status" style="font-size:12px;color:var(--text-muted)"></span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:0 20px 16px">
+      <button class="btn btn-success" id="ovpn-start-btn" onclick="startOpenVPN()">▶ Start OpenVPN Server</button>
+      <button class="btn btn-danger"  id="ovpn-stop-btn"  onclick="stopOpenVPN()">■ Stop OpenVPN Server</button>
+      <button class="btn btn-secondary" onclick="window.open('/api/vpn/openvpn/client-config','_blank')">
+        ⬇ Download Client .ovpn
+      </button>
+      <span id="ovpn-details" style="font-size:11px;color:var(--text-muted);margin-left:8px"></span>
+    </div>
+  </div>
+
   <div class="grid grid-2" style="margin-bottom:16px">
     <div class="card">
       <div class="card-header">
@@ -518,6 +549,67 @@ async function saveSSLConfig() {
   });
   toast('Config saved', 'success');
 }
+// ── Public IP + OpenVPN Server ─────────────────────────────────────────────
+async function loadPublicIPState() {
+  try {
+    const r = await GET('/api/vpn/openvpn/public-ip');
+    if (r.public_ip) document.getElementById('public-ip-input').value = r.public_ip;
+    const s = await GET('/api/vpn/openvpn/server/status');
+    const badge = document.getElementById('ovpn-server-badge');
+    const det = document.getElementById('ovpn-details');
+    if (s.active) {
+      badge.className = 'badge badge-allow'; badge.textContent = 'Running';
+      document.getElementById('ovpn-start-btn').disabled = true;
+      document.getElementById('ovpn-stop-btn').disabled = false;
+    } else {
+      badge.className = 'badge badge-disabled'; badge.textContent = s.status || 'Stopped';
+      document.getElementById('ovpn-start-btn').disabled = false;
+      document.getElementById('ovpn-stop-btn').disabled = true;
+    }
+    if (s.details) det.textContent = s.details.split('\n')[2] || '';
+  } catch(e) { console.warn('OpenVPN status:', e); }
+}
+
+async function detectPublicIP() {
+  document.getElementById('public-ip-status').textContent = 'Detecting...';
+  try {
+    const r = await GET('/api/vpn/openvpn/detect-ip');
+    document.getElementById('public-ip-input').value = r.public_ip;
+    document.getElementById('public-ip-status').textContent = 'Detected: ' + r.public_ip;
+  } catch(e) { document.getElementById('public-ip-status').textContent = 'Failed: ' + e.message; }
+}
+
+async function savePublicIP() {
+  const ip = document.getElementById('public-ip-input').value.trim();
+  if (!ip) { toast('Enter an IP address first', 'error'); return; }
+  const r = await POST('/api/vpn/openvpn/public-ip', {public_ip: ip});
+  if (r.status === 'ok') {
+    toast('Public IP saved: ' + ip, 'success');
+    document.getElementById('public-ip-status').textContent = 'Saved!';
+  } else {
+    toast('Error saving IP', 'error');
+  }
+}
+
+async function startOpenVPN() {
+  const btn = document.getElementById('ovpn-start-btn');
+  btn.disabled = true; btn.textContent = 'Starting...';
+  const r = await POST('/api/vpn/openvpn/server/start');
+  toast(r.message, r.status === 'ok' ? 'success' : 'error');
+  setTimeout(() => { loadPublicIPState(); btn.textContent = '▶ Start OpenVPN Server'; }, 2000);
+}
+
+async function stopOpenVPN() {
+  const btn = document.getElementById('ovpn-stop-btn');
+  btn.disabled = true; btn.textContent = 'Stopping...';
+  const r = await POST('/api/vpn/openvpn/server/stop');
+  toast(r.message, 'info');
+  setTimeout(() => { loadPublicIPState(); btn.textContent = '■ Stop OpenVPN Server'; }, 2000);
+}
+
+// Load on page open
+document.addEventListener('DOMContentLoaded', loadPublicIPState);
+
 async function startSSLVPN() { const r = await POST('/api/vpn/ssl/start'); toast(r.message, r.status==='ok'?'success':'error'); }
 async function stopSSLVPN() { const r = await POST('/api/vpn/ssl/stop'); toast(r.message, 'info'); }
 async function refreshSSLClients() {

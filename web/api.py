@@ -729,6 +729,77 @@ async def api_wg_keygen():
     psk = vpn_keygen.generate_wireguard_preshared_key()
     return {"private_key": priv, "public_key": pub, "preshared_key": psk}
 
+# ── OpenVPN Public IP ─────────────────────────────────────────────────────────
+
+@app.get("/api/vpn/openvpn/public-ip")
+async def api_get_public_ip():
+    saved = database.get_setting("openvpn_public_ip", "")
+    return {"public_ip": saved}
+
+@app.post("/api/vpn/openvpn/public-ip")
+async def api_set_public_ip(request: Request):
+    data = await request.json()
+    ip = data.get("public_ip", "").strip()
+    if not ip:
+        raise HTTPException(400, "IP is required")
+    database.set_setting("openvpn_public_ip", ip)
+    database.add_log("INFO", details=f"OpenVPN public IP updated: {ip}")
+    return {"status": "ok", "public_ip": ip}
+
+@app.get("/api/vpn/openvpn/detect-ip")
+async def api_detect_public_ip():
+    import httpx
+    for url in ["https://api.ipify.org", "https://ifconfig.me", "https://icanhazip.com"]:
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                r = await client.get(url)
+                ip = r.text.strip()
+                if ip:
+                    return {"public_ip": ip}
+        except Exception:
+            continue
+    raise HTTPException(500, "Cannot detect public IP")
+
+# ── OpenVPN Server Start / Stop ───────────────────────────────────────────────
+
+@app.get("/api/vpn/openvpn/server/status")
+async def api_ovpn_server_status():
+    if not IS_LINUX:
+        return {"status": "unknown", "active": False}
+    ok, out, _ = run(["systemctl", "is-active", "openvpn@server"])
+    active = out.strip() == "active"
+    _, out2, _ = run(["systemctl", "status", "openvpn@server", "--no-pager", "-l"])
+    return {"status": out.strip(), "active": active, "details": (out2 or "")[:500]}
+
+@app.post("/api/vpn/openvpn/server/start")
+async def api_ovpn_server_start():
+    if not IS_LINUX:
+        return {"status": "error", "message": "Linux only"}
+    import os as _os
+    conf_path = "/etc/openvpn/server/server.conf"
+    pki_dir = "/etc/aegisguard/pki"
+    if not _os.path.exists(conf_path):
+        _os.makedirs("/etc/openvpn/server", exist_ok=True)
+        conf = vpn_keygen.generate_openvpn_server_config(pki_dir)
+        with open(conf_path, "w") as f:
+            f.write(conf)
+    ok, out, err = run(["systemctl", "enable", "--now", "openvpn@server"])
+    if ok:
+        _auto_vpn_rules("OpenVPN", "UDP", "1194")
+        database.add_log("INFO", details="OpenVPN server started")
+        return {"status": "ok", "message": "OpenVPN server started"}
+    return {"status": "error", "message": err or out}
+
+@app.post("/api/vpn/openvpn/server/stop")
+async def api_ovpn_server_stop():
+    if not IS_LINUX:
+        return {"status": "error", "message": "Linux only"}
+    ok, out, err = run(["systemctl", "stop", "openvpn@server"])
+    database.add_log("INFO", details="OpenVPN server stopped")
+    return {"status": "ok" if ok else "error", "message": out or err or "stopped"}
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 @app.post("/api/vpn/openvpn/pki/generate")
 async def api_openvpn_pki(request: Request):
     data = await request.json()
@@ -746,10 +817,15 @@ async def api_ovpn_server_cfg(pki_dir: str = "/etc/aegisguard/pki",
                              headers={"Content-Disposition": "attachment; filename=server.conf"})
 
 @app.get("/api/vpn/openvpn/client-config")
-async def api_ovpn_client_cfg(server_ip: str, pki_dir: str = "/etc/aegisguard/pki", port: int = 1194):
+async def api_ovpn_client_cfg(server_ip: str = "", pki_dir: str = "/etc/aegisguard/pki", port: int = 1194):
+    # Use saved public IP if not provided
+    if not server_ip:
+        server_ip = database.get_setting("openvpn_public_ip", "")
+    if not server_ip:
+        raise HTTPException(400, "Public IP not set. Go to VPN → OpenVPN Server → set Public IP first.")
     conf = vpn_keygen.generate_openvpn_client_config(server_ip, pki_dir, port=port)
     return StreamingResponse(io.StringIO(conf), media_type="text/plain",
-                             headers={"Content-Disposition": "attachment; filename=client.ovpn"})
+                             headers={"Content-Disposition": "attachment; filename=aegisguard-client.ovpn"})
 
 @app.get("/api/vpn/wireguard/generate-config")
 async def api_wg_config(endpoint: str, server_pubkey: str, client_privkey: str,
