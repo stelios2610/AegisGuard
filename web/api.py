@@ -733,7 +733,8 @@ async def api_wg_keygen():
 
 @app.get("/api/vpn/openvpn/public-ip")
 async def api_get_public_ip():
-    saved = database.get_setting("openvpn_public_ip", "")
+    # wan_ip is the key used by ssl_vpn.generate_user_config
+    saved = database.get_setting("wan_ip", "") or database.get_setting("openvpn_public_ip", "")
     return {"public_ip": saved}
 
 @app.post("/api/vpn/openvpn/public-ip")
@@ -742,73 +743,52 @@ async def api_set_public_ip(request: Request):
     ip = data.get("public_ip", "").strip()
     if not ip:
         raise HTTPException(400, "IP is required")
+    # Save to wan_ip — used by ssl_vpn.generate_user_config
+    database.set_setting("wan_ip", ip)
     database.set_setting("openvpn_public_ip", ip)
-    database.add_log("INFO", details=f"OpenVPN public IP updated: {ip}")
-    return {"status": "ok", "public_ip": ip}
+    # Regenerate all existing user .ovpn configs with new IP
+    try:
+        users = database.get_vpn_users()
+        for u in users:
+            ssl_vpn.generate_user_config(u, server_ip=ip)
+    except Exception:
+        pass
+    database.add_log("INFO", details=f"VPN public IP updated: {ip}")
+    return {"status": "ok", "public_ip": ip,
+            "message": f"IP saved and {len(users) if 'users' in dir() else 0} client configs regenerated"}
 
 @app.get("/api/vpn/openvpn/detect-ip")
 async def api_detect_public_ip():
-    # Use curl — no extra dependencies needed
     for service in ["ifconfig.me", "api.ipify.org", "icanhazip.com"]:
         ok, ip, _ = run(["curl", "-s", "--max-time", "5", "--connect-timeout", "4",
                           f"https://{service}"])
-        ip = ip.strip() if ip else ""
-        if ok and ip and len(ip) <= 45:  # valid IPv4/IPv6 length
+        ip = (ip or "").strip()
+        if ok and ip and len(ip) <= 45:
             return {"public_ip": ip}
     raise HTTPException(500, "Cannot detect public IP — check internet connection")
 
-# ── OpenVPN Server Start / Stop ───────────────────────────────────────────────
+# ── OpenVPN Server Start / Stop (uses ssl_vpn module) ────────────────────────
 
 @app.get("/api/vpn/openvpn/server/status")
 async def api_ovpn_server_status():
-    if not IS_LINUX:
-        return {"status": "unknown", "active": False}
-    _, out, _ = run(["systemctl", "is-active", "openvpn@server"])
-    active = (out.strip() == "active")
-    _, out2, _ = run(["systemctl", "status", "openvpn@server", "--no-pager", "-l"])
-    return {"status": out.strip() or "inactive", "active": active,
-            "details": (out2 or "")[:500]}
+    status = ssl_vpn.get_server_status()
+    active = (status == "Running")
+    return {"status": status, "active": active,
+            "initialized": ssl_vpn.is_pki_initialized()}
 
 @app.post("/api/vpn/openvpn/server/start")
 async def api_ovpn_server_start():
-    if not IS_LINUX:
-        return {"status": "error", "message": "Linux only"}
-
-    pki_dir = "/etc/aegisguard/pki"
-    conf_path = "/etc/openvpn/server/server.conf"
-
-    # Must have PKI first
-    import os as _os
-    ca_ok = _os.path.exists(f"{pki_dir}/ca.crt")
-    if not ca_ok:
+    if not ssl_vpn.is_pki_initialized():
         return {"status": "error",
-                "message": "PKI not found. Go to OpenVPN PKI tab and click 'Generate PKI' first."}
-
-    # Write server.conf if missing
-    if not _os.path.exists(conf_path):
-        try:
-            _os.makedirs("/etc/openvpn/server", exist_ok=True)
-            conf = vpn_keygen.generate_openvpn_server_config(pki_dir)
-            with open(conf_path, "w") as f:
-                f.write(conf)
-        except Exception as e:
-            return {"status": "error", "message": f"Cannot write config: {e}"}
-
-    ok, out, err = run(["systemctl", "enable", "--now", "openvpn@server"])
-    msg = (out or err or "").strip()
+                "message": "PKI not initialized. Press 'Auto Setup SSL VPN' first."}
+    ok, msg = ssl_vpn.start_server()
     if ok:
-        _auto_vpn_rules("OpenVPN", "UDP", "1194")
-        database.add_log("INFO", details="OpenVPN server started")
-        return {"status": "ok", "message": "OpenVPN server started successfully"}
-    return {"status": "error", "message": msg or "Failed to start — check server.conf and PKI files"}
+        _auto_vpn_rules("SSL-VPN", "UDP", "1194")
+    return {"status": "ok" if ok else "error", "message": msg}
 
 @app.post("/api/vpn/openvpn/server/stop")
 async def api_ovpn_server_stop():
-    if not IS_LINUX:
-        return {"status": "error", "message": "Linux only"}
-    ok, out, err = run(["systemctl", "stop", "openvpn@server"])
-    msg = (out or err or "stopped").strip()
-    database.add_log("INFO", details="OpenVPN server stopped")
+    ok, msg = ssl_vpn.stop_server()
     return {"status": "ok" if ok else "error", "message": msg}
 
 # ─────────────────────────────────────────────────────────────────────────────
