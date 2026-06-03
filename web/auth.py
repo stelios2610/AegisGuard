@@ -84,19 +84,44 @@ def ensure_default_admin():
 
 def create_session(username: str) -> str:
     token = secrets.token_urlsafe(32)
-    _sessions[token] = {
-        "user": username,
-        "expires": datetime.utcnow() + timedelta(hours=SESSION_HOURS),
-    }
+    expires = datetime.utcnow() + timedelta(hours=SESSION_HOURS)
+    # Memory store
+    _sessions[token] = {"user": username, "expires": expires}
+    # DB store — persists across restarts
+    try:
+        database.set_setting(f"session:{token}", f"{username}|{expires.isoformat()}")
+    except Exception:
+        pass
     _cleanup_sessions()
     return token
+
+
+def _load_session_from_db(token: str) -> Optional[dict]:
+    try:
+        val = database.get_setting(f"session:{token}", "")
+        if not val or "|" not in val:
+            return None
+        user, exp_str = val.split("|", 1)
+        exp = datetime.fromisoformat(exp_str)
+        if datetime.utcnow() > exp:
+            database.set_setting(f"session:{token}", "")
+            return None
+        return {"user": user, "expires": exp}
+    except Exception:
+        return None
 
 
 def get_session_user(request: Request) -> Optional[str]:
     token = request.cookies.get(COOKIE_NAME)
     if not token:
         return None
+    # Check memory first
     session = _sessions.get(token)
+    if not session:
+        # Try DB (e.g. after service restart)
+        session = _load_session_from_db(token)
+        if session:
+            _sessions[token] = session
     if not session:
         return None
     if datetime.utcnow() > session["expires"]:
@@ -109,6 +134,10 @@ def delete_session(request: Request):
     token = request.cookies.get(COOKIE_NAME)
     if token:
         _sessions.pop(token, None)
+        try:
+            database.set_setting(f"session:{token}", "")
+        except Exception:
+            pass
 
 
 def _cleanup_sessions():
@@ -120,12 +149,16 @@ def _cleanup_sessions():
 
 # ── Auth check (use as dependency or middleware) ──────────────────────────────
 
-def require_auth(request: Request) -> Optional[RedirectResponse]:
-    """Returns a redirect to /login if not authenticated, else None."""
+def require_auth(request: Request):
+    """Returns redirect or 401 JSON if not authenticated, else None."""
+    from fastapi.responses import JSONResponse
     path = request.url.path
     if path in PUBLIC_ROUTES or path.startswith("/static"):
         return None
     if get_session_user(request) is None:
+        # API calls get 401 JSON — so JS can detect and redirect
+        if path.startswith("/api/"):
+            return JSONResponse({"detail": "Session expired"}, status_code=401)
         safe_next = path if path.startswith("/") and not path.startswith("//") else "/"
         return RedirectResponse(url=f"/login?next={safe_next}", status_code=302)
     return None

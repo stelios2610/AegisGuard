@@ -550,10 +550,18 @@ async function saveSSLConfig() {
   toast('Config saved', 'success');
 }
 // ── Public IP + OpenVPN Server ─────────────────────────────────────────────
+function _handleExpired() {
+  toast('Session expired — redirecting to login...', 'error');
+  setTimeout(() => { window.location.href = '/login'; }, 1500);
+}
+
 async function safeGet(url) {
   try {
     const r = await fetch(url, {credentials: 'same-origin'});
+    if (r.status === 401) { _handleExpired(); return null; }
     if (!r.ok) return null;
+    const ct = r.headers.get('content-type') || '';
+    if (!ct.includes('json')) return null;
     return await r.json();
   } catch(e) { return null; }
 }
@@ -565,11 +573,14 @@ async function safePost(url, data) {
       headers: {'Content-Type': 'application/json'},
       body: data ? JSON.stringify(data) : null
     });
+    if (r.status === 401) { _handleExpired(); return {status:'error', message:'Session expired'}; }
     if (!r.ok) {
       let msg = 'Server error ' + r.status;
       try { const j = await r.json(); msg = j.detail || j.message || msg; } catch(e2) {}
       return {status: 'error', message: msg};
     }
+    const ct = r.headers.get('content-type') || '';
+    if (!ct.includes('json')) return {status: 'error', message: 'Unexpected response'};
     return await r.json();
   } catch(e) { return {status: 'error', message: e.message}; }
 }
