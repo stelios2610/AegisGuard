@@ -82,7 +82,7 @@ autoinstall:
     variant: ''
   identity:
     hostname: aegisguard
-    username: stelios
+    username: admin
     password: "${PASS_HASH}"
   storage:
     layout:
@@ -129,8 +129,8 @@ autoinstall:
       expire: false
   late-commands:
     - curtin in-target --target=/target -- bash /cdrom/aegisguard_setup/install.sh
-    - "echo 'stelios ALL=(ALL) NOPASSWD: ALL' > /target/etc/sudoers.d/stelios"
-    - chmod 440 /target/etc/sudoers.d/stelios
+    - "echo 'admin ALL=(ALL) NOPASSWD: ALL' > /target/etc/sudoers.d/admin"
+    - chmod 440 /target/etc/sudoers.d/admin
 USERDATA
 
 # ── Step 5: Post-install script ───────────────────────────────────────────────
@@ -215,7 +215,7 @@ cat > /etc/motd << 'MOTD'
   ║           AegisGuard Network Security v1.0           ║
   ║                                                      ║
   ║  Web UI:  https://10.0.0.1:8080  (LAN only)          ║
-  ║  SSH:     ssh stelios@10.0.0.1   (LAN only)          ║
+  ║  SSH:     ssh admin@10.0.0.1     (LAN only)          ║
   ║                                                      ║
   ║  Connect a PC to the LAN port to access the GUI      ║
   ╚══════════════════════════════════════════════════════╝
@@ -290,5 +290,5 @@ echo -e "${G}  ║   Size: ${SIZE}                                  ║${NC}"
 echo -e "${G}  ║                                              ║${NC}"
 echo -e "${G}  ║   Boot → installs → first reboot:           ║${NC}"
 echo -e "${G}  ║   https://10.0.0.1:8080  (LAN only)         ║${NC}"
-echo -e "${G}  ║   SSH:  stelios@10.0.0.1 / AegisGuard2024!  ║${NC}"
+echo -e "${G}  ║   SSH:  admin@10.0.0.1 / AegisGuard2024!    ║${NC}"
 echo -e "${G}  ╚══════════════════════════════════════════════╝${NC}"
