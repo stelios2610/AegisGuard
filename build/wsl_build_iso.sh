@@ -143,64 +143,38 @@ set -e
 exec >> /var/log/aegisguard-install.log 2>&1
 echo "=== AegisGuard Install: $(date) ==="
 
-# Clone from GitHub
+# ── Clone from GitHub ─────────────────────────────────────────────────────────
 git clone --depth=1 https://github.com/stelios2610/AegisGuard.git /opt/aegisguard
 cd /opt/aegisguard
 
-# Python venv + deps (no PyQt6 for server)
+# ── Python venv (no PyQt6 — headless server) ──────────────────────────────────
 python3 -m venv /opt/aegisguard/venv
 /opt/aegisguard/venv/bin/pip install --quiet --upgrade pip
 /opt/aegisguard/venv/bin/pip install --quiet \
     fastapi "uvicorn[standard]" jinja2 pydantic python-multipart \
-    psutil bcrypt "pyjwt[crypto]" qrcode pillow aiosqlite httpx aiofiles requests
+    psutil bcrypt qrcode pillow python-dotenv PyYAML
 
-# SSL certificate for nginx
-mkdir -p /etc/aegisguard/ssl
+# ── SSL certificate (nginx path — matches running server) ─────────────────────
+mkdir -p /etc/nginx/ssl /etc/aegisguard
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-    -keyout /etc/aegisguard/ssl/key.pem \
-    -out    /etc/aegisguard/ssl/cert.pem \
+    -keyout /etc/nginx/ssl/aegisguard.key \
+    -out    /etc/nginx/ssl/aegisguard.crt \
     -subj   "/CN=AegisGuard/O=AegisGuard/C=GR" 2>/dev/null
-chmod 640 /etc/aegisguard/ssl/key.pem
+chmod 640 /etc/nginx/ssl/aegisguard.key
 
-# nginx — HTTPS on 8080, HTTP redirect on 80
-cat > /etc/nginx/sites-available/aegisguard << 'NGINX'
-server {
-    listen 8080 ssl;
-    server_name _;
-    ssl_certificate     /etc/aegisguard/ssl/cert.pem;
-    ssl_certificate_key /etc/aegisguard/ssl/key.pem;
-    ssl_protocols       TLSv1.2 TLSv1.3;
-    ssl_ciphers         HIGH:!aNULL:!MD5;
-    location /ws {
-        proxy_pass         http://127.0.0.1:8888;
-        proxy_http_version 1.1;
-        proxy_set_header   Upgrade    $http_upgrade;
-        proxy_set_header   Connection "upgrade";
-        proxy_set_header   Host       $host;
-        proxy_read_timeout 86400;
-    }
-    location / {
-        proxy_pass         http://127.0.0.1:8888;
-        proxy_set_header   Host              $host;
-        proxy_set_header   X-Real-IP         $remote_addr;
-        proxy_set_header   X-Forwarded-Proto https;
-        proxy_read_timeout 300;
-        client_max_body_size 50m;
-    }
-}
-server {
-    listen 80;
-    return 301 https://$host:8080$request_uri;
-}
-NGINX
-ln -sf /etc/nginx/sites-available/aegisguard /etc/nginx/sites-enabled/
+# ── nginx — use exact config from git repo ────────────────────────────────────
+cp /opt/aegisguard/build/nginx-aegisguard.conf /etc/nginx/sites-available/aegisguard
+ln -sf /etc/nginx/sites-available/aegisguard /etc/nginx/sites-enabled/aegisguard
 rm -f /etc/nginx/sites-enabled/default
 
-# AegisGuard systemd service (internal on 127.0.0.1:8888)
+# ── aegisguard.service — override git version: 127.0.0.1:8888, root access ───
 cat > /etc/systemd/system/aegisguard.service << 'SVC'
 [Unit]
 Description=AegisGuard Network Security Suite
-After=network.target
+Documentation=https://github.com/aegisguard
+After=network.target network-online.target
+Wants=network-online.target
+
 [Service]
 Type=simple
 User=root
@@ -208,48 +182,41 @@ WorkingDirectory=/opt/aegisguard
 ExecStart=/opt/aegisguard/venv/bin/python -m uvicorn web.api:app --host 127.0.0.1 --port 8888 --workers 1
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:/var/log/aegisguard.log
-StandardError=append:/var/log/aegisguard.log
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aegisguard
+NoNewPrivileges=false
+PrivateTmp=false
+
 [Install]
 WantedBy=multi-user.target
 SVC
 
-# First-boot wizard service
-cat > /etc/systemd/system/aegisguard-firstboot.service << 'FB'
-[Unit]
-Description=AegisGuard First Boot Network Setup
-After=network-online.target multi-user.target
-Wants=network-online.target
-Before=aegisguard.service
-ConditionPathExists=!/etc/aegisguard/.firstboot_done
-[Service]
-Type=oneshot
-ExecStart=/bin/bash /opt/aegisguard/build/first-boot.sh
-RemainAfterExit=yes
-StandardOutput=journal
-StandardError=journal
-TimeoutStartSec=300
-[Install]
-WantedBy=multi-user.target
-FB
+# ── aegisguard-firstboot.service — use git repo version (matches server) ──────
+cp /opt/aegisguard/build/aegisguard-firstboot.service \
+   /etc/systemd/system/aegisguard-firstboot.service
 
-# Initialize database
+# ── fail2ban — install configs from git repo ──────────────────────────────────
+mkdir -p /etc/fail2ban/jail.d /etc/fail2ban/filter.d
+cp /opt/aegisguard/build/fail2ban-aegisguard.conf \
+   /etc/fail2ban/jail.d/aegisguard.conf 2>/dev/null || true
+cp /opt/aegisguard/build/fail2ban-filter-aegisguard-vpn.conf \
+   /etc/fail2ban/filter.d/aegisguard-vpn.conf 2>/dev/null || true
+
+# ── logrotate ─────────────────────────────────────────────────────────────────
+cp /opt/aegisguard/build/aegisguard-logrotate \
+   /etc/logrotate.d/aegisguard 2>/dev/null || true
+
+# ── Initialize database ───────────────────────────────────────────────────────
 cd /opt/aegisguard
-/opt/aegisguard/venv/bin/python -c 'from db import database; database.initialize()' 2>/dev/null || true
+/opt/aegisguard/venv/bin/python -c \
+    'from db import database; database.initialize()' 2>/dev/null || true
 
-# Enable services
+# ── Enable services ───────────────────────────────────────────────────────────
 systemctl daemon-reload
-systemctl enable aegisguard aegisguard-firstboot nginx fail2ban dnsmasq
+systemctl enable aegisguard aegisguard-firstboot nginx fail2ban dnsmasq ssh
 
-# Firewall
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow 22/tcp
-ufw allow 80/tcp
-ufw allow 8080/tcp
-ufw --force enable
-
-# MOTD
+# ── MOTD ──────────────────────────────────────────────────────────────────────
 cat > /etc/motd << 'MOTD'
 
   ╔══════════════════════════════════════════════════════╗
