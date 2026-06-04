@@ -147,14 +147,14 @@ echo "=== AegisGuard Install: $(date) ==="
 git clone --depth=1 https://github.com/stelios2610/AegisGuard.git /opt/aegisguard
 cd /opt/aegisguard
 
-# ── Python venv (no PyQt6 — headless server) ──────────────────────────────────
+# ── Python venv — exact packages as running server ────────────────────────────
 python3 -m venv /opt/aegisguard/venv
 /opt/aegisguard/venv/bin/pip install --quiet --upgrade pip
 /opt/aegisguard/venv/bin/pip install --quiet \
     fastapi "uvicorn[standard]" jinja2 pydantic python-multipart \
     psutil bcrypt qrcode pillow python-dotenv PyYAML
 
-# ── SSL certificate (nginx path — matches running server) ─────────────────────
+# ── SSL certificate (same path as server: /etc/nginx/ssl/) ───────────────────
 mkdir -p /etc/nginx/ssl /etc/aegisguard
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
     -keyout /etc/nginx/ssl/aegisguard.key \
@@ -162,45 +162,37 @@ openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
     -subj   "/CN=AegisGuard/O=AegisGuard/C=GR" 2>/dev/null
 chmod 640 /etc/nginx/ssl/aegisguard.key
 
-# ── nginx — use exact config from git repo ────────────────────────────────────
-cp /opt/aegisguard/build/nginx-aegisguard.conf /etc/nginx/sites-available/aegisguard
+# ── nginx — EXACT copy from server ───────────────────────────────────────────
+cp /cdrom/server-configs/nginx-aegisguard.conf /etc/nginx/sites-available/aegisguard
 ln -sf /etc/nginx/sites-available/aegisguard /etc/nginx/sites-enabled/aegisguard
 rm -f /etc/nginx/sites-enabled/default
 
-# ── aegisguard.service — override git version: 127.0.0.1:8888, root access ───
-cat > /etc/systemd/system/aegisguard.service << 'SVC'
-[Unit]
-Description=AegisGuard Network Security Suite
-Documentation=https://github.com/aegisguard
-After=network.target network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/opt/aegisguard
-ExecStart=/opt/aegisguard/venv/bin/python -m uvicorn web.api:app --host 127.0.0.1 --port 8888 --workers 1
-Restart=on-failure
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=aegisguard
-NoNewPrivileges=false
-PrivateTmp=false
-
-[Install]
-WantedBy=multi-user.target
-SVC
-
-# ── aegisguard-firstboot.service — use git repo version (matches server) ──────
-cp /opt/aegisguard/build/aegisguard-firstboot.service \
+# ── systemd services — EXACT copies from server ───────────────────────────────
+cp /cdrom/server-configs/aegisguard.service \
+   /etc/systemd/system/aegisguard.service
+cp /cdrom/server-configs/aegisguard-firstboot.service \
    /etc/systemd/system/aegisguard-firstboot.service
 
-# ── fail2ban — install configs from git repo ──────────────────────────────────
+# ── first-boot.sh — EXACT copy from server ───────────────────────────────────
+cp /cdrom/server-configs/first-boot.sh \
+   /opt/aegisguard/build/first-boot.sh
+chmod +x /opt/aegisguard/build/first-boot.sh
+
+# ── VPN auth scripts — EXACT copies from server ───────────────────────────────
+cp /cdrom/server-configs/vpn-auth.sh       /etc/aegisguard/vpn-auth.sh
+cp /cdrom/server-configs/vpn_auth_check.py /etc/aegisguard/vpn_auth_check.py
+chmod +x /etc/aegisguard/vpn-auth.sh /etc/aegisguard/vpn_auth_check.py
+
+# ── dnsmasq — EXACT copy from server ─────────────────────────────────────────
+mkdir -p /etc/dnsmasq.d
+cp /cdrom/server-configs/dnsmasq-aegisguard.conf \
+   /etc/dnsmasq.d/aegisguard.conf
+
+# ── fail2ban — EXACT copies from server ───────────────────────────────────────
 mkdir -p /etc/fail2ban/jail.d /etc/fail2ban/filter.d
-cp /opt/aegisguard/build/fail2ban-aegisguard.conf \
+cp /cdrom/server-configs/fail2ban-jail-aegisguard.conf \
    /etc/fail2ban/jail.d/aegisguard.conf 2>/dev/null || true
-cp /opt/aegisguard/build/fail2ban-filter-aegisguard-vpn.conf \
+cp /cdrom/server-configs/fail2ban-filter-aegisguard-vpn.conf \
    /etc/fail2ban/filter.d/aegisguard-vpn.conf 2>/dev/null || true
 
 # ── logrotate ─────────────────────────────────────────────────────────────────
@@ -235,6 +227,13 @@ INSTALLSCRIPT
 
 chmod +x "$CUSTOM/aegisguard_setup/install.sh"
 log "Post-install script written"
+
+# ── Step 5b: Embed server configs into ISO ────────────────────────────────────
+info "[5b] Embedding server configs (copied directly from running server)..."
+SCONF="$(dirname "$0")/server-configs"
+mkdir -p "$CUSTOM/server-configs"
+cp "$SCONF/"* "$CUSTOM/server-configs/" 2>/dev/null || true
+log "Server configs embedded: $(ls "$CUSTOM/server-configs/" | wc -l) files"
 
 # ── Step 6: Checksums ─────────────────────────────────────────────────────────
 info "[6/7] Updating checksums..."
