@@ -43,7 +43,7 @@ apt-get install -y \
     openvpn fail2ban \
     clamav clamav-daemon \
     keepalived strongswan wireguard \
-    htop ufw \
+    htop \
     -qq
 log "Packages installed"
 
