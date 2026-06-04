@@ -171,7 +171,13 @@ log "App code embedded: $(find "$CUSTOM/aegisguard_app" -name '*.py' | wc -l) Py
 info "[6/8] Downloading Python wheels for offline install..."
 mkdir -p "$CUSTOM/aegisguard_wheels"
 
-python3 -m pip download --quiet --dest "$CUSTOM/aegisguard_wheels/" \
+# Fix WSL DNS if needed
+if ! ping -c1 -W2 8.8.8.8 &>/dev/null; then
+    echo "nameserver 8.8.8.8" > /etc/resolv.conf
+    echo "nameserver 1.1.1.1" >> /etc/resolv.conf
+fi
+
+python3 -m pip download --dest "$CUSTOM/aegisguard_wheels/" \
     fastapi \
     "uvicorn[standard]" \
     jinja2 \
@@ -183,7 +189,7 @@ python3 -m pip download --quiet --dest "$CUSTOM/aegisguard_wheels/" \
     pillow \
     python-dotenv \
     PyYAML \
-    2>/dev/null || true
+    2>&1 | grep -E "^(Collecting|Saved|ERROR)" || true
 
 WHEEL_COUNT=$(ls "$CUSTOM/aegisguard_wheels/" 2>/dev/null | wc -l)
 log "Wheels downloaded: $WHEEL_COUNT packages"
