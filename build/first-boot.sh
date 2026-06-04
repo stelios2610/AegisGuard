@@ -95,14 +95,17 @@ netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables/rules.v4
 log "iptables rules saved"
 
 # ── 7. dnsmasq DHCP config ────────────────────────────────────────────────────
-mkdir -p /etc/dnsmasq.d
-
-# Disable systemd-resolved on 53 to avoid conflict with dnsmasq
+# Disable systemd-resolved stub on port 53 (conflicts with dnsmasq)
 sed -i 's/#DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf 2>/dev/null || true
 systemctl restart systemd-resolved 2>/dev/null || true
 
-cat > /etc/dnsmasq.d/aegisguard.conf << EOF
-# AegisGuard DHCP + DNS (dnsmasq)
+# Write config directly into /etc/dnsmasq.conf (same as running server)
+# Remove any previous AegisGuard block first
+sed -i '/# AegisGuard DHCP config/,$ d' /etc/dnsmasq.conf 2>/dev/null || true
+
+cat >> /etc/dnsmasq.conf << EOF
+# AegisGuard DHCP config (dnsmasq)
+# Listen only on LAN interface to avoid conflict with systemd-resolved
 listen-address=10.0.0.1
 bind-interfaces
 no-resolv
