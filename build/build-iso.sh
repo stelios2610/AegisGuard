@@ -102,11 +102,13 @@ log "Base system configured"
 step "4/9  Installing packages (takes 5-10 min)"
 
 PACKAGES=(
-    # Kernel + boot (bin-only packages avoid conflict)
+    # Kernel + boot
     linux-image-amd64 grub-efi-amd64-bin grub-pc-bin grub-common grub2-common
     initramfs-tools live-boot live-config
     # Python
     python3 python3-pip python3-venv python3-full
+    # Web server
+    nginx openssl
     # Firewall + networking
     iptables iptables-persistent netfilter-persistent
     iproute2 net-tools iputils-ping tcpdump nmap
@@ -114,7 +116,7 @@ PACKAGES=(
     dnsmasq
     dhcpcd5
     # VPN
-    openvpn openssl
+    openvpn
     wireguard wireguard-tools
     strongswan strongswan-swanctl charon-systemd
     # Security
@@ -123,7 +125,7 @@ PACKAGES=(
     # HA
     keepalived
     # Utilities
-    ssh openssh-server
+    git ssh openssh-server
     rsync curl wget
     vim nano htop
     ca-certificates
@@ -136,50 +138,104 @@ DEBIAN_FRONTEND=noninteractive chroot "$CHROOT" apt-get install -y \
     --no-install-recommends "${PACKAGES[@]}"
 log "System packages installed"
 
-# ── Step 5: Install Python packages ──────────────────────────────────────────
-step "5/9  Installing Python packages"
+# ── Step 5: Clone AegisGuard from GitHub + install Python packages ────────────
+step "5/9  Cloning AegisGuard from GitHub"
 
-chroot "$CHROOT" python3 -m venv /opt/aegisguard-venv
-chroot "$CHROOT" /opt/aegisguard-venv/bin/pip install --upgrade pip -q
-chroot "$CHROOT" /opt/aegisguard-venv/bin/pip install \
-    fastapi uvicorn[standard] jinja2 pydantic python-multipart psutil -q
+chroot "$CHROOT" git clone --depth=1 \
+    https://github.com/stelios2610/AegisGuard.git \
+    /opt/aegisguard
+log "AegisGuard cloned from GitHub"
+
+chroot "$CHROOT" python3 -m venv /opt/aegisguard/venv
+chroot "$CHROOT" /opt/aegisguard/venv/bin/pip install --upgrade pip -q
+chroot "$CHROOT" /opt/aegisguard/venv/bin/pip install -q \
+    fastapi "uvicorn[standard]" jinja2 pydantic python-multipart \
+    psutil bcrypt "pyjwt[crypto]" qrcode pillow aiosqlite httpx aiofiles requests
 log "Python packages installed"
 
-# ── Step 6: Install AegisGuard ────────────────────────────────────────────────
-step "6/9  Installing AegisGuard"
+# ── Step 6: Configure AegisGuard ──────────────────────────────────────────────
+step "6/9  Configuring AegisGuard"
 
-mkdir -p "${CHROOT}/opt/aegisguard"
-rsync -a \
-    --exclude=".git" \
-    --exclude="__pycache__" \
-    --exclude="*.pyc" \
-    --exclude="firewall.db" \
-    --exclude="build/iso-work" \
-    --exclude="build/aegisguard.iso" \
-    "${PROJECT_DIR}/" "${CHROOT}/opt/aegisguard/"
+# Generate SSL certificate for nginx
+mkdir -p "${CHROOT}/etc/aegisguard/ssl"
+chroot "$CHROOT" openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+    -keyout /etc/aegisguard/ssl/key.pem \
+    -out    /etc/aegisguard/ssl/cert.pem \
+    -subj   "/CN=AegisGuard/O=AegisGuard/C=GR" 2>/dev/null
+log "SSL certificate generated"
 
-# Update service to use venv
-sed -i "s|ExecStart=.*|ExecStart=/opt/aegisguard-venv/bin/python -m uvicorn web.api:app --host 0.0.0.0 --port 8080 --workers 1|" \
-    "${CHROOT}/opt/aegisguard/build/aegisguard.service"
+# nginx config — HTTPS on 8080, HTTP redirect on 80
+cat > "${CHROOT}/etc/nginx/sites-available/aegisguard" << 'NGINX'
+server {
+    listen 8080 ssl;
+    server_name _;
+    ssl_certificate     /etc/aegisguard/ssl/cert.pem;
+    ssl_certificate_key /etc/aegisguard/ssl/key.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+    location /ws {
+        proxy_pass         http://127.0.0.1:8888;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade    $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_set_header   Host       $host;
+        proxy_read_timeout 86400;
+    }
+    location / {
+        proxy_pass         http://127.0.0.1:8888;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-Proto https;
+        proxy_read_timeout 300;
+        client_max_body_size 50m;
+    }
+}
+server {
+    listen 80;
+    return 301 https://$host:8080$request_uri;
+}
+NGINX
 
-# Install services
-cp "${CHROOT}/opt/aegisguard/build/aegisguard.service" \
-   "${CHROOT}/etc/systemd/system/"
+chroot "$CHROOT" ln -sf /etc/nginx/sites-available/aegisguard /etc/nginx/sites-enabled/
+chroot "$CHROOT" rm -f /etc/nginx/sites-enabled/default
+
+# AegisGuard systemd service — internal on 127.0.0.1:8888
+cat > "${CHROOT}/etc/systemd/system/aegisguard.service" << 'SVC'
+[Unit]
+Description=AegisGuard Network Security Suite
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/aegisguard
+ExecStart=/opt/aegisguard/venv/bin/python -m uvicorn web.api:app --host 127.0.0.1 --port 8888 --workers 1
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aegisguard
+
+[Install]
+WantedBy=multi-user.target
+SVC
+
+# First-boot service
 cp "${CHROOT}/opt/aegisguard/build/aegisguard-firstboot.service" \
    "${CHROOT}/etc/systemd/system/"
 
-# Install logrotate config
-cp "${CHROOT}/opt/aegisguard/build/aegisguard-logrotate" \
-   "${CHROOT}/etc/logrotate.d/aegisguard"
+# Update first-boot to also start nginx
+sed -i 's|systemctl start aegisguard|systemctl start nginx\nsystemctl start aegisguard|' \
+    "${CHROOT}/opt/aegisguard/build/first-boot.sh" 2>/dev/null || true
 
-# Install journald config
-mkdir -p "${CHROOT}/etc/systemd/journald.conf.d"
-cp "${CHROOT}/opt/aegisguard/build/journald-aegisguard.conf" \
-   "${CHROOT}/etc/systemd/journald.conf.d/"
+# Logrotate
+cp "${CHROOT}/opt/aegisguard/build/aegisguard-logrotate" \
+   "${CHROOT}/etc/logrotate.d/aegisguard" 2>/dev/null || true
 
 # Enable services
 chroot "$CHROOT" systemctl enable aegisguard
 chroot "$CHROOT" systemctl enable aegisguard-firstboot
+chroot "$CHROOT" systemctl enable nginx
 chroot "$CHROOT" systemctl enable dnsmasq
 chroot "$CHROOT" systemctl enable fail2ban
 chroot "$CHROOT" systemctl enable ssh
@@ -187,7 +243,7 @@ chroot "$CHROOT" systemctl enable ssh
 # Initialize database
 chroot "$CHROOT" bash -c "
     cd /opt/aegisguard
-    /opt/aegisguard-venv/bin/python -c 'from db import database; database.initialize()'
+    /opt/aegisguard/venv/bin/python -c 'from db import database; database.initialize()' 2>/dev/null || true
     echo 'Database initialized'
 "
 
@@ -195,24 +251,22 @@ chroot "$CHROOT" bash -c "
 cat > "${CHROOT}/etc/motd" << 'EOF'
 
   ╔══════════════════════════════════════════════════════╗
-  ║              AegisGuard Network Security             ║
+  ║           AegisGuard Network Security v1.0           ║
   ║                                                      ║
-  ║  Web UI:  http://10.0.0.1:8080                       ║
-  ║  Default: admin / AegisGuard2024!                    ║
+  ║  Web UI:  https://10.0.0.1:8080  (LAN only)          ║
+  ║  SSH:     ssh root@10.0.0.1      (LAN only)          ║
   ║                                                      ║
-  ║  Connect to LAN port to access the Web UI            ║
+  ║  Connect a PC to the LAN port                        ║
   ╚══════════════════════════════════════════════════════╝
 
 EOF
 
-# Root password
+# Root user + SSH
 echo "root:AegisGuard2024!" | chroot "$CHROOT" chpasswd
-
-# SSH config — allow root login for initial setup
 sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' \
     "${CHROOT}/etc/ssh/sshd_config" 2>/dev/null || true
 
-log "AegisGuard installed"
+log "AegisGuard configured"
 
 # ── Step 7: Install auto-installer ───────────────────────────────────────────
 step "7/9  Installing auto-installer"

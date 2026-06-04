@@ -1,0 +1,328 @@
+#!/bin/bash
+# AegisGuard Firewall ISO Builder (WSL2)
+# Uses Ubuntu 26.04 autoinstall + GitHub clone
+# Run from PowerShell: wsl -u root bash build/wsl_build_iso.sh
+set -e
+
+ISO='/mnt/c/Users/stelakis-pc/Downloads/ubuntu-26.04-live-server-amd64.iso'
+OUTPUT='/mnt/c/Users/stelakis-pc/Projects/firewall-gui/build/AegisGuard-1.0.0-amd64.iso'
+WORK='/tmp/aegisguard-iso-build'
+SRC="$WORK/src"
+CUSTOM="$WORK/custom"
+
+R='\033[0;31m'; G='\033[0;32m'; Y='\033[1;33m'; C='\033[0;36m'; NC='\033[0m'
+log()  { echo -e "${G}[✓]${NC} $*"; }
+info() { echo -e "${C}[→]${NC} $*"; }
+err()  { echo -e "${R}[✗]${NC} $*"; exit 1; }
+
+echo ""
+echo -e "${C}  ╔══════════════════════════════════════════════╗${NC}"
+echo -e "${C}  ║   AegisGuard Firewall ISO Builder            ║${NC}"
+echo -e "${C}  ║   Ubuntu 26.04 + GitHub clone                ║${NC}"
+echo -e "${C}  ╚══════════════════════════════════════════════╝${NC}"
+echo ""
+
+[ -f "$ISO" ] || err "Ubuntu ISO not found at $ISO"
+
+# ── Step 1: Dependencies ──────────────────────────────────────────────────────
+info "[1/7] Installing build dependencies..."
+apt-get update -qq
+apt-get install -y xorriso p7zip-full rsync -qq
+log "Dependencies ready"
+
+# ── Step 2: Extract ISO ───────────────────────────────────────────────────────
+info "[2/7] Extracting Ubuntu ISO..."
+rm -rf "$WORK"
+mkdir -p "$SRC" "$CUSTOM"
+7z x "$ISO" -o"$SRC" -y > /dev/null
+cp -a "$SRC/." "$CUSTOM/"
+log "ISO extracted"
+
+# ── Step 3: Bootloader ────────────────────────────────────────────────────────
+info "[3/7] Configuring bootloader..."
+for f in "$CUSTOM/boot/grub/grub.cfg" "$CUSTOM/grub/grub.cfg"; do
+    [ -f "$f" ] || continue
+    cat > "$f" << 'GRUBCFG'
+set default=0
+set timeout=10
+
+menuentry "Install AegisGuard Network Security" --class ubuntu --class os {
+    set gfxpayload=keep
+    linux   /casper/vmlinuz quiet autoinstall ds=nocloud;s=/cdrom/nocloud/ ---
+    initrd  /casper/initrd
+}
+menuentry "Install AegisGuard (Safe Mode)" --class ubuntu {
+    set gfxpayload=keep
+    linux   /casper/vmlinuz autoinstall ds=nocloud;s=/cdrom/nocloud/ ---
+    initrd  /casper/initrd
+}
+GRUBCFG
+    log "Updated: $f"
+done
+
+# ── Step 4: Autoinstall config ────────────────────────────────────────────────
+info "[4/7] Writing autoinstall configuration..."
+mkdir -p "$CUSTOM/nocloud"
+
+cat > "$CUSTOM/nocloud/meta-data" << 'META'
+instance-id: aegisguard-1
+local-hostname: aegisguard
+META
+
+PASS_HASH=$(python3 -c "import crypt; print(crypt.crypt('AegisGuard2024!', crypt.mksalt(crypt.METHOD_SHA512)))" 2>/dev/null \
+           || echo '$6$aegisguard$placeholder')
+
+cat > "$CUSTOM/nocloud/user-data" << USERDATA
+#cloud-config
+autoinstall:
+  version: 1
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+    variant: ''
+  identity:
+    hostname: aegisguard
+    username: stelios
+    password: "${PASS_HASH}"
+  storage:
+    layout:
+      name: lvm
+      sizing-policy: all
+  network:
+    network:
+      version: 2
+      ethernets:
+        enp0s3: {dhcp4: true}
+        eth0:   {dhcp4: true}
+        ens3:   {dhcp4: true}
+        ens33:  {dhcp4: true}
+  ssh:
+    install-server: true
+    allow-pw: true
+  packages:
+    - python3
+    - python3-pip
+    - python3-venv
+    - nginx
+    - openssl
+    - git
+    - curl
+    - wget
+    - iptables
+    - iptables-persistent
+    - netfilter-persistent
+    - iproute2
+    - net-tools
+    - dnsmasq
+    - openvpn
+    - fail2ban
+    - clamav
+    - clamav-daemon
+    - keepalived
+    - strongswan
+    - wireguard
+    - htop
+    - ufw
+    - whiptail
+  user-data:
+    chpasswd:
+      expire: false
+  late-commands:
+    - curtin in-target --target=/target -- bash /cdrom/aegisguard_setup/install.sh
+    - "echo 'stelios ALL=(ALL) NOPASSWD: ALL' > /target/etc/sudoers.d/stelios"
+    - chmod 440 /target/etc/sudoers.d/stelios
+USERDATA
+
+# ── Step 5: Post-install script ───────────────────────────────────────────────
+info "[5/7] Writing post-install script (GitHub clone)..."
+mkdir -p "$CUSTOM/aegisguard_setup"
+
+cat > "$CUSTOM/aegisguard_setup/install.sh" << 'INSTALLSCRIPT'
+#!/bin/bash
+set -e
+exec >> /var/log/aegisguard-install.log 2>&1
+echo "=== AegisGuard Install: $(date) ==="
+
+# Clone from GitHub
+git clone --depth=1 https://github.com/stelios2610/AegisGuard.git /opt/aegisguard
+cd /opt/aegisguard
+
+# Python venv + deps (no PyQt6 for server)
+python3 -m venv /opt/aegisguard/venv
+/opt/aegisguard/venv/bin/pip install --quiet --upgrade pip
+/opt/aegisguard/venv/bin/pip install --quiet \
+    fastapi "uvicorn[standard]" jinja2 pydantic python-multipart \
+    psutil bcrypt "pyjwt[crypto]" qrcode pillow aiosqlite httpx aiofiles requests
+
+# SSL certificate for nginx
+mkdir -p /etc/aegisguard/ssl
+openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+    -keyout /etc/aegisguard/ssl/key.pem \
+    -out    /etc/aegisguard/ssl/cert.pem \
+    -subj   "/CN=AegisGuard/O=AegisGuard/C=GR" 2>/dev/null
+chmod 640 /etc/aegisguard/ssl/key.pem
+
+# nginx — HTTPS on 8080, HTTP redirect on 80
+cat > /etc/nginx/sites-available/aegisguard << 'NGINX'
+server {
+    listen 8080 ssl;
+    server_name _;
+    ssl_certificate     /etc/aegisguard/ssl/cert.pem;
+    ssl_certificate_key /etc/aegisguard/ssl/key.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+    location /ws {
+        proxy_pass         http://127.0.0.1:8888;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade    $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_set_header   Host       $host;
+        proxy_read_timeout 86400;
+    }
+    location / {
+        proxy_pass         http://127.0.0.1:8888;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-Proto https;
+        proxy_read_timeout 300;
+        client_max_body_size 50m;
+    }
+}
+server {
+    listen 80;
+    return 301 https://$host:8080$request_uri;
+}
+NGINX
+ln -sf /etc/nginx/sites-available/aegisguard /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+
+# AegisGuard systemd service (internal on 127.0.0.1:8888)
+cat > /etc/systemd/system/aegisguard.service << 'SVC'
+[Unit]
+Description=AegisGuard Network Security Suite
+After=network.target
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/aegisguard
+ExecStart=/opt/aegisguard/venv/bin/python -m uvicorn web.api:app --host 127.0.0.1 --port 8888 --workers 1
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/aegisguard.log
+StandardError=append:/var/log/aegisguard.log
+[Install]
+WantedBy=multi-user.target
+SVC
+
+# First-boot wizard service
+cat > /etc/systemd/system/aegisguard-firstboot.service << 'FB'
+[Unit]
+Description=AegisGuard First Boot Network Setup
+After=network-online.target multi-user.target
+Wants=network-online.target
+Before=aegisguard.service
+ConditionPathExists=!/etc/aegisguard/.firstboot_done
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/aegisguard/build/first-boot.sh
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=300
+[Install]
+WantedBy=multi-user.target
+FB
+
+# Initialize database
+cd /opt/aegisguard
+/opt/aegisguard/venv/bin/python -c 'from db import database; database.initialize()' 2>/dev/null || true
+
+# Enable services
+systemctl daemon-reload
+systemctl enable aegisguard aegisguard-firstboot nginx fail2ban dnsmasq
+
+# Firewall
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow 22/tcp
+ufw allow 80/tcp
+ufw allow 8080/tcp
+ufw --force enable
+
+# MOTD
+cat > /etc/motd << 'MOTD'
+
+  ╔══════════════════════════════════════════════════════╗
+  ║           AegisGuard Network Security v1.0           ║
+  ║                                                      ║
+  ║  Web UI:  https://10.0.0.1:8080  (LAN only)          ║
+  ║  SSH:     ssh stelios@10.0.0.1   (LAN only)          ║
+  ║                                                      ║
+  ║  Connect a PC to the LAN port to access the GUI      ║
+  ╚══════════════════════════════════════════════════════╝
+
+MOTD
+
+echo "=== Install complete: $(date) ==="
+INSTALLSCRIPT
+
+chmod +x "$CUSTOM/aegisguard_setup/install.sh"
+log "Post-install script written"
+
+# ── Step 6: Checksums ─────────────────────────────────────────────────────────
+info "[6/7] Updating checksums..."
+cd "$CUSTOM"
+find . -type f ! -name 'md5sum.txt' -print0 | xargs -0 md5sum > md5sum.txt
+cd -
+log "Checksums updated"
+
+# ── Step 7: Build ISO ─────────────────────────────────────────────────────────
+info "[7/7] Building bootable ISO..."
+
+MBR="" EFI=""
+[ -f "$SRC/[BOOT]/1-Boot-NoEmul.img" ] && MBR="$SRC/[BOOT]/1-Boot-NoEmul.img"
+[ -f "$SRC/[BOOT]/2-Boot-NoEmul.img" ] && EFI="$SRC/[BOOT]/2-Boot-NoEmul.img"
+if [ -z "$MBR" ]; then
+    for f in "$SRC/boot/grub/i386-pc/boot_hybrid.img" "$SRC/isolinux/isohdpfx.bin"; do
+        [ -f "$f" ] && MBR="$f" && break
+    done
+fi
+if [ -z "$EFI" ]; then
+    for f in "$SRC/boot/grub/efi.img" "$SRC/EFI/efi.img"; do
+        [ -f "$f" ] && EFI="$f" && break
+    done
+fi
+
+[ -z "$MBR" ] && err "MBR boot image not found"
+[ -z "$EFI" ] && err "EFI boot image not found"
+
+xorriso -as mkisofs \
+    -r -V "AegisGuard-1.0.0" \
+    --grub2-mbr "$MBR" \
+    -partition_offset 16 \
+    --mbr-force-bootable \
+    -append_partition 2 28732ac11ff8d211ba4b00a0c93ec93b "$EFI" \
+    -appended_part_as_gpt \
+    -iso_mbr_part_type a2a0d0ebe5b9334487c068b6b72699c7 \
+    -c '/boot/boot.catalog' \
+    -b '/boot/grub/i386-pc/eltorito.img' \
+    -no-emul-boot -boot-load-size 4 -boot-info-table --grub2-boot-info \
+    -eltorito-alt-boot \
+    -e '--interval:appended_partition_2:::' \
+    -no-emul-boot \
+    -o "$OUTPUT" "$CUSTOM/" 2>&1 | tail -3
+
+SIZE=$(du -sh "$OUTPUT" | cut -f1)
+rm -rf "$WORK"
+
+echo ""
+echo -e "${G}  ╔══════════════════════════════════════════════╗${NC}"
+echo -e "${G}  ║   AegisGuard ISO built successfully!         ║${NC}"
+echo -e "${G}  ║                                              ║${NC}"
+echo -e "${G}  ║   File: build/AegisGuard-1.0.0-amd64.iso    ║${NC}"
+echo -e "${G}  ║   Size: ${SIZE}                                  ║${NC}"
+echo -e "${G}  ║                                              ║${NC}"
+echo -e "${G}  ║   Boot → installs → first reboot:           ║${NC}"
+echo -e "${G}  ║   https://10.0.0.1:8080  (LAN only)         ║${NC}"
+echo -e "${G}  ║   SSH:  stelios@10.0.0.1 / AegisGuard2024!  ║${NC}"
+echo -e "${G}  ╚══════════════════════════════════════════════╝${NC}"
