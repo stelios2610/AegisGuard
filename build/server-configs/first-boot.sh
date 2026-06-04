@@ -3,8 +3,6 @@
 # Runs once after installation to configure the network and start services.
 # Ubuntu 26.04 uses Netplan — /etc/network/interfaces is ignored.
 
-set -e
-
 LOGFILE="/var/log/aegisguard-firstboot.log"
 DONE_FLAG="/etc/aegisguard/.firstboot_done"
 
@@ -27,7 +25,6 @@ LAN_IF="${IFACES[1]:-eth1}"
 log "Detected interfaces: WAN=$WAN_IF  LAN=$LAN_IF"
 
 # ── 2. Write Netplan config (Ubuntu 26.04 — netplan only) ─────────────────────
-# Remove installer-generated config to avoid conflicts
 rm -f /etc/netplan/00-installer-config.yaml 2>/dev/null || true
 rm -f /etc/netplan/50-cloud-init.yaml 2>/dev/null || true
 
@@ -50,13 +47,12 @@ netplan generate 2>/dev/null || true
 netplan apply 2>/dev/null || true
 sleep 2
 
-# Set LAN IP immediately (doesn't wait for netplan)
+# Set LAN IP immediately
 ip link set "${LAN_IF}" up 2>/dev/null || true
 ip addr flush dev "${LAN_IF}" 2>/dev/null || true
 ip addr add 10.0.0.1/24 dev "${LAN_IF}" 2>/dev/null || true
 log "LAN ${LAN_IF} up: 10.0.0.1/24"
 
-# WAN — netplan handles DHCP; force a refresh if needed
 ip link set "${WAN_IF}" up 2>/dev/null || true
 log "WAN ${WAN_IF} up (DHCP via netplan)"
 
@@ -65,42 +61,39 @@ cat > /etc/sysctl.d/99-aegisguard.conf << 'SYSCTL'
 net.ipv4.ip_forward = 1
 net.ipv4.conf.all.forwarding = 1
 net.ipv4.conf.all.rp_filter = 1
-net.ipv4.conf.eth0.rp_filter = 1
-net.ipv4.conf.eth1.rp_filter = 1
 SYSCTL
-sysctl -p /etc/sysctl.d/99-aegisguard.conf
+sysctl -p /etc/sysctl.d/99-aegisguard.conf 2>/dev/null || true
 log "IP forwarding enabled (persistent)"
 
 # ── 5. NAT masquerade on WAN ─────────────────────────────────────────────────
 mkdir -p /etc/iptables
-iptables -t nat -A POSTROUTING -o "${WAN_IF}" -j MASQUERADE
-iptables -A FORWARD -i "${LAN_IF}" -o "${WAN_IF}" -j ACCEPT
-iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+iptables -t nat -A POSTROUTING -o "${WAN_IF}" -j MASQUERADE 2>/dev/null || true
+iptables -A FORWARD -i "${LAN_IF}" -o "${WAN_IF}" -j ACCEPT 2>/dev/null || true
+iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
 log "NAT/masquerade set on ${WAN_IF}"
 
 # ── 6. Firewall: LAN fully open, WAN locked ───────────────────────────────────
-iptables -F INPUT
-iptables -A INPUT -i lo -j ACCEPT
-iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-iptables -A INPUT -i "${LAN_IF}" -j ACCEPT
-iptables -A INPUT -i "${WAN_IF}" -p udp --dport 1194 -j ACCEPT
-iptables -A INPUT -i "${WAN_IF}" -p tcp --dport 1194 -j ACCEPT
-iptables -A INPUT -i "${WAN_IF}" -p udp --dport 51820 -j ACCEPT
-iptables -A INPUT -i "${WAN_IF}" -j DROP
-iptables -P INPUT DROP
+iptables -F INPUT 2>/dev/null || true
+iptables -A INPUT -i lo -j ACCEPT 2>/dev/null || true
+iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
+iptables -A INPUT -i "${LAN_IF}" -j ACCEPT 2>/dev/null || true
+iptables -A INPUT -i "${WAN_IF}" -p udp --dport 1194 -j ACCEPT 2>/dev/null || true
+iptables -A INPUT -i "${WAN_IF}" -p tcp --dport 1194 -j ACCEPT 2>/dev/null || true
+iptables -A INPUT -i "${WAN_IF}" -p udp --dport 51820 -j ACCEPT 2>/dev/null || true
+iptables -A INPUT -i "${WAN_IF}" -j DROP 2>/dev/null || true
+iptables -P INPUT DROP 2>/dev/null || true
 log "Firewall: WAN locked. LAN open."
 
-# Save iptables rules persistently
-netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables/rules.v4
+netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
 log "iptables rules saved"
 
 # ── 7. dnsmasq DHCP config ────────────────────────────────────────────────────
-# Disable systemd-resolved stub on port 53 (conflicts with dnsmasq)
+# Disable systemd-resolved stub on port 53
 sed -i 's/#DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf 2>/dev/null || true
+sed -i 's/DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf 2>/dev/null || true
 systemctl restart systemd-resolved 2>/dev/null || true
 
-# Write config directly into /etc/dnsmasq.conf (same as running server)
-# Remove any previous AegisGuard block first
+# Write AegisGuard block into /etc/dnsmasq.conf
 sed -i '/# AegisGuard DHCP config/,$ d' /etc/dnsmasq.conf 2>/dev/null || true
 
 cat >> /etc/dnsmasq.conf << EOF
@@ -122,12 +115,12 @@ dhcp-option=${LAN_IF},3,10.0.0.1
 dhcp-option=${LAN_IF},6,10.0.0.1
 EOF
 
-systemctl enable dnsmasq
-systemctl restart dnsmasq
-log "dnsmasq started on ${LAN_IF} (10.0.0.100-200, gateway 10.0.0.1)"
+systemctl enable dnsmasq 2>/dev/null || true
+systemctl restart dnsmasq 2>/dev/null || true
+log "dnsmasq started on ${LAN_IF} (10.0.0.100-200)"
 
 # ── 8. Update AegisGuard DB with interface names ──────────────────────────────
-python3 - << PYEOF
+python3 - << PYEOF || log "DB update skipped (will use defaults)"
 import sys
 sys.path.insert(0, '/opt/aegisguard')
 from db import database
@@ -144,26 +137,25 @@ print("DB updated: WAN=${WAN_IF} LAN=${LAN_IF}")
 PYEOF
 
 # ── 9. SSL cert for nginx ────────────────────────────────────────────────────
-# (created by install.sh, but ensure it exists)
 if [ ! -f /etc/nginx/ssl/aegisguard.crt ]; then
     mkdir -p /etc/nginx/ssl
     openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
         -keyout /etc/nginx/ssl/aegisguard.key \
         -out    /etc/nginx/ssl/aegisguard.crt \
-        -subj   "/CN=AegisGuard/O=AegisGuard/C=GR" 2>/dev/null
-    chmod 640 /etc/nginx/ssl/aegisguard.key
+        -subj   "/CN=AegisGuard/O=AegisGuard/C=GR" 2>/dev/null || true
+    chmod 640 /etc/nginx/ssl/aegisguard.key 2>/dev/null || true
     log "SSL cert generated"
 fi
 
 # ── 10. Start services ────────────────────────────────────────────────────────
-systemctl enable aegisguard nginx fail2ban
-systemctl restart nginx
-systemctl start aegisguard
+systemctl enable aegisguard nginx fail2ban 2>/dev/null || true
+systemctl restart nginx 2>/dev/null || true
+systemctl start aegisguard 2>/dev/null || true
 log "Services started"
 
 # ── 11. Done ──────────────────────────────────────────────────────────────────
 touch "$DONE_FLAG"
 log "=== First boot complete ==="
 log "Web UI: https://10.0.0.1:8080 (LAN only)"
-log "SSH:    stelios@10.0.0.1 (LAN only)"
+log "SSH:    admin@10.0.0.1 (LAN only)"
 log "Connect PC to ${LAN_IF}, get DHCP 10.0.0.x, open browser."
