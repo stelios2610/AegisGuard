@@ -124,6 +124,7 @@ def _ipt6(args, table=None):
 
 
 def _ensure_chains():
+    _setup_linux_forwarding()
     for chain in ("INPUT", "OUTPUT", "FORWARD"):
         ag_chain = f"{CHAIN_PREFIX}_{chain}"
         _ipt(["-N", ag_chain])
@@ -217,11 +218,21 @@ def _remove_rule_linux(rule):
 
 
 def _setup_linux_forwarding():
-    """Enable IP forwarding for router/gateway mode."""
+    """Enable IP forwarding and persist it across reboots."""
     try:
         with open("/proc/sys/net/ipv4/ip_forward", "w") as f:
             f.write("1\n")
         run(["sysctl", "-w", "net.ipv4.ip_forward=1"])
+        run(["sysctl", "-w", "net.ipv4.conf.all.forwarding=1"])
+        # Persist across reboots
+        sysctl_conf = "/etc/sysctl.d/99-aegisguard.conf"
+        try:
+            with open(sysctl_conf, "w") as f:
+                f.write("net.ipv4.ip_forward = 1\nnet.ipv4.conf.all.forwarding = 1\n")
+        except PermissionError:
+            run(["bash", "-c",
+                 "echo 'net.ipv4.ip_forward = 1\nnet.ipv4.conf.all.forwarding = 1' "
+                 f"> {sysctl_conf}"])
         return True
     except Exception:
         return False
