@@ -200,6 +200,7 @@ echo "=== AegisGuard Offline Install: $(date) ==="
 
 # ── Copy embedded code (no git clone needed) ──────────────────────────────────
 cp -r /cdrom/aegisguard_app /opt/aegisguard
+mkdir -p /opt/aegisguard/build
 cd /opt/aegisguard
 
 # ── Python venv — install from embedded wheels (no PyPI) ──────────────────────
