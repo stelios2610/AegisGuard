@@ -423,3 +423,54 @@ def get_connection_tracking():
     for line in out.splitlines()[:100]:
         entries.append(line.strip())
     return entries
+
+
+# ─── DHCP Relay ───────────────────────────────────────────────────────────────
+
+def apply_dhcp_relay():
+    """Enable or disable DHCP relay using isc-dhcp-relay (dhcrelay)."""
+    if not IS_LINUX:
+        return False, "DHCP Relay is Linux only"
+
+    cfg = database.get_dhcp_relay()
+    enabled = cfg.get("enabled", 0)
+    server_ip = cfg.get("server_ip", "").strip()
+    interfaces = cfg.get("interfaces", "").strip()
+
+    # Stop any running dhcrelay
+    run(["pkill", "-f", "dhcrelay"])
+
+    if not enabled:
+        return True, "DHCP Relay stopped"
+
+    if not server_ip:
+        return False, "DHCP Relay: no server IP configured"
+    if not interfaces:
+        return False, "DHCP Relay: no interfaces configured"
+
+    # Ensure isc-dhcp-relay is installed
+    ok, _, _ = run(["which", "dhcrelay"])
+    if not ok:
+        run(["apt-get", "install", "-y", "-qq", "isc-dhcp-relay"])
+
+    # Build dhcrelay command
+    iface_args = []
+    for iface in interfaces.split(","):
+        iface = iface.strip()
+        if iface:
+            iface_args += ["-i", iface]
+
+    cmd = ["dhcrelay", "-4"] + iface_args + [server_ip]
+    ok, out, err = run(cmd)
+    if not ok:
+        return False, f"dhcrelay failed: {err}"
+
+    database.add_log("INFO", details=f"DHCP Relay started → {server_ip} on {interfaces}")
+    return True, f"DHCP Relay active → {server_ip} on {interfaces}"
+
+
+def get_dhcp_relay_status():
+    """Check if dhcrelay is running."""
+    ok, out, _ = run(["pgrep", "-a", "dhcrelay"])
+    return {"running": ok, "process": out.strip() if ok else ""}
+

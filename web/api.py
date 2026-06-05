@@ -561,6 +561,32 @@ async def api_del_lease(lid: int):
     database.delete_dhcp_lease(lid); return {"status":"ok"}
 
 
+# ── DHCP Relay ────────────────────────────────────────────────────────────────
+
+@app.get("/api/dhcp/relay")
+async def api_get_dhcp_relay():
+    return database.get_dhcp_relay()
+
+class DhcpRelayConfig(BaseModel):
+    enabled: int = 0
+    server_ip: str = ""
+    interfaces: str = ""
+
+@app.post("/api/dhcp/relay")
+async def api_save_dhcp_relay(cfg: DhcpRelayConfig):
+    database.save_dhcp_relay(cfg.enabled, cfg.server_ip, cfg.interfaces)
+    return {"status": "ok"}
+
+@app.post("/api/dhcp/relay/apply")
+async def api_apply_dhcp_relay():
+    ok, msg = network_manager.apply_dhcp_relay()
+    return {"status": "ok" if ok else "error", "message": msg}
+
+@app.get("/api/dhcp/relay/status")
+async def api_dhcp_relay_status():
+    return network_manager.get_dhcp_relay_status()
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # REST API — DNS
 # ══════════════════════════════════════════════════════════════════════════════

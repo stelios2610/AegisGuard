@@ -158,6 +158,17 @@ def initialize():
         )
     """)
 
+    # ── DHCP Relay ────────────────────────────────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS dhcp_relay (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            enabled INTEGER DEFAULT 0,
+            server_ip TEXT NOT NULL DEFAULT '',
+            interfaces TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+    """)
+
     # ── DNS settings ──────────────────────────────────────────────────────────
     c.execute("""
         CREATE TABLE IF NOT EXISTS dns_settings (
@@ -1031,6 +1042,34 @@ def add_dhcp_lease(mac, ip, hostname="", interface=""):
 
 def delete_dhcp_lease(lease_id):
     conn = get_connection()
+
+
+# ── DHCP Relay ────────────────────────────────────────────────────────────────
+
+def get_dhcp_relay():
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM dhcp_relay ORDER BY id LIMIT 1").fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return {"enabled": 0, "server_ip": "", "interfaces": ""}
+
+
+def save_dhcp_relay(enabled, server_ip, interfaces):
+    conn = get_connection()
+    existing = conn.execute("SELECT id FROM dhcp_relay LIMIT 1").fetchone()
+    if existing:
+        conn.execute(
+            "UPDATE dhcp_relay SET enabled=?, server_ip=?, interfaces=? WHERE id=?",
+            (1 if enabled else 0, server_ip, interfaces, existing["id"])
+        )
+    else:
+        conn.execute(
+            "INSERT INTO dhcp_relay (enabled, server_ip, interfaces, created_at) VALUES (?,?,?,?)",
+            (1 if enabled else 0, server_ip, interfaces, datetime.now().isoformat())
+        )
+    conn.commit()
+    conn.close()
     conn.execute("DELETE FROM dhcp_leases WHERE id = ?", (lease_id,))
     conn.commit()
     conn.close()

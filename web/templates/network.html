@@ -298,6 +298,33 @@
   </div>
 </div>
 
+<!-- ══════════════════ DHCP RELAY ══════════════════ -->
+<div class="card" style="margin-top:20px">
+  <div class="card-header">
+    <div class="card-title">DHCP Relay</div>
+    <div class="card-sub">Forward DHCP requests to an external DHCP server instead of using the built-in server</div>
+  </div>
+  <div style="padding:20px">
+    <div class="grid grid-2" style="gap:16px;align-items:end">
+      <div class="form-group">
+        <label class="form-label">DHCP Server IP</label>
+        <input class="form-control font-mono" id="relay-server-ip" placeholder="e.g. 192.168.1.10">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Listen Interfaces <span style="color:var(--text-muted);font-size:12px">(comma-separated, e.g. eth1,eth2)</span></label>
+        <input class="form-control font-mono" id="relay-interfaces" placeholder="e.g. eth1">
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px;margin-top:8px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="relay-enabled"> Enable DHCP Relay
+      </label>
+      <button class="btn btn-primary" onclick="saveRelay()">Save & Apply</button>
+      <span id="relay-status-badge"></span>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════════════ DNS TAB ══════════════════ -->
 <div id="tab-dns" {% if active_tab != 'dns' %}style="display:none"{% endif %}>
   <div class="grid grid-2">
@@ -1391,6 +1418,38 @@ async function applyDhcp() {
     toast(r.message || 'DHCP applied', r.status === 'ok' ? 'success' : 'error');
   } catch (e) { toast('Error: ' + e.message, 'error'); }
 }
+
+// ── DHCP Relay ──
+async function loadRelay() {
+  try {
+    const cfg = await GET('/api/dhcp/relay');
+    document.getElementById('relay-server-ip').value = cfg.server_ip || '';
+    document.getElementById('relay-interfaces').value = cfg.interfaces || '';
+    document.getElementById('relay-enabled').checked = cfg.enabled == 1;
+    const st = await GET('/api/dhcp/relay/status');
+    const badge = document.getElementById('relay-status-badge');
+    badge.innerHTML = st.running
+      ? '<span class="badge badge-allow">Running</span>'
+      : '<span class="badge badge-disabled">Stopped</span>';
+  } catch (e) {}
+}
+
+async function saveRelay() {
+  const serverIp = document.getElementById('relay-server-ip').value.trim();
+  const ifaces = document.getElementById('relay-interfaces').value.trim();
+  const enabled = document.getElementById('relay-enabled').checked ? 1 : 0;
+  if (enabled && (!serverIp || !ifaces)) {
+    toast('DHCP Server IP and interfaces are required', 'error'); return;
+  }
+  try {
+    await POST('/api/dhcp/relay', { enabled, server_ip: serverIp, interfaces: ifaces });
+    const r = await POST('/api/dhcp/relay/apply');
+    toast(r.message || 'DHCP Relay applied', r.status === 'ok' ? 'success' : 'error');
+    await loadRelay();
+  } catch (e) { toast('Error: ' + e.message, 'error'); }
+}
+
+document.addEventListener('DOMContentLoaded', loadRelay);
 
 async function saveLease() {
   const mac = document.getElementById('lease-mac').value.trim();
