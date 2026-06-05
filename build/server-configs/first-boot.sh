@@ -80,6 +80,7 @@ iptables -A INPUT -i "${LAN_IF}" -j ACCEPT 2>/dev/null || true
 iptables -A INPUT -i "${WAN_IF}" -p udp --dport 1194 -j ACCEPT 2>/dev/null || true
 iptables -A INPUT -i "${WAN_IF}" -p tcp --dport 1194 -j ACCEPT 2>/dev/null || true
 iptables -A INPUT -i "${WAN_IF}" -p udp --dport 51820 -j ACCEPT 2>/dev/null || true
+iptables -A INPUT -i tun0 -j ACCEPT 2>/dev/null || true
 iptables -A INPUT -i "${WAN_IF}" -j DROP 2>/dev/null || true
 iptables -P INPUT DROP 2>/dev/null || true
 log "Firewall: WAN locked. LAN open."
