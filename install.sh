@@ -95,6 +95,7 @@ cp /opt/aegisguard/build/server-configs/fail2ban-jail-aegisguard.conf \
 cp /opt/aegisguard/build/server-configs/fail2ban-filter-aegisguard-vpn.conf \
    /etc/fail2ban/filter.d/aegisguard-vpn.conf 2>/dev/null || true
 systemctl enable fail2ban
+systemctl start fail2ban 2>/dev/null || true
 systemctl restart fail2ban 2>/dev/null || true
 log "fail2ban configured"
 
