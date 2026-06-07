@@ -1312,6 +1312,7 @@ async function saveIface() {
     else await POST('/api/network/interfaces', data);
     toast('Applying interface configuration...', 'info');
     const r = await POST('/api/network/apply-all');
+    await POST('/api/dhcp/apply').catch(() => {});
     if (r.status === 'ok') {
       toast('Interface saved & applied to system', 'success');
     } else {
@@ -1497,9 +1498,10 @@ async function saveDhcp() {
   };
   try {
     await POST('/api/dhcp/config', data);
-    toast('DHCP pool saved', 'success');
+    const r = await POST('/api/dhcp/apply');
+    toast(r.status === 'ok' ? 'DHCP saved & applied' : 'Saved — apply failed: ' + (r.message || ''), r.status === 'ok' ? 'success' : 'error');
     closeModal('add-dhcp-modal');
-    setTimeout(() => location.reload(), 600);
+    setTimeout(() => location.reload(), 1200);
   } catch (e) { toast('Error: ' + e.message, 'error'); }
 }
 
