@@ -9,9 +9,7 @@ from core.platform import IS_LINUX, run
 from core.vpn_keygen import generate_wireguard_keypair, generate_wireguard_preshared_key
 
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
-STRONGSWAN_CONF = "/etc/ipsec.conf"
-STRONGSWAN_SECRETS = "/etc/ipsec.secrets"
-STRONGSWAN_D = "/etc/ipsec.d"
+SWANCTL_CONF_DIR = "/etc/swanctl/conf.d"
 WG_CONF_DIR = "/etc/wireguard"
 BOV_CONF_DIR = os.path.join(BASE_DIR, "pki", "bov")
 
@@ -20,93 +18,82 @@ _tunnel_statuses = {}    # tunnel_id -> "Up"|"Down"|"Error"|"Connecting"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# StrongSwan / IPSec (IKEv1 + IKEv2 + L2TP)
+# StrongSwan 6.x / swanctl (IKEv1 + IKEv2)
+# Ubuntu 26.04 uses charon-systemd + swanctl — no legacy ipsec command
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _write_strongswan_conf(tunnel):
-    """Generate StrongSwan ipsec.conf entry for a BOV tunnel."""
+_DH_MAP = {
+    "DH14": "modp2048", "DH15": "modp3072", "DH16": "modp4096",
+    "DH19": "ecp256",   "DH20": "ecp384",   "DH21": "ecp521",
+}
+
+
+def _write_swanctl_conf(tunnel):
+    """Generate a swanctl.conf snippet for one tunnel."""
     name = tunnel["name"].replace(" ", "_")
-    ike_ver = "2" if tunnel.get("ike_version", "IKEv2") == "IKEv2" else "1"
+    ike_ver = 2 if tunnel.get("ike_version", "IKEv2") == "IKEv2" else 1
 
-    # Ciphers
-    ike_cipher = f"{tunnel.get('ike_cipher','AES256').lower()}-{tunnel.get('ike_hash','SHA256').lower()}-{tunnel.get('ike_dh','modp2048').lower()}"
-    esp_cipher = f"{tunnel.get('esp_cipher','AES256').lower()}-{tunnel.get('esp_hash','SHA256').lower()}-{tunnel.get('pfs_group','modp2048').lower()}"
+    ike_dh  = _DH_MAP.get(tunnel.get("ike_dh", "DH14"), "modp2048")
+    pfs_dh  = _DH_MAP.get(tunnel.get("pfs_group", "DH14"), "modp2048")
+    ike_c   = tunnel.get("ike_cipher", "aes256").lower()
+    ike_h   = tunnel.get("ike_hash",   "sha256").lower()
+    esp_c   = tunnel.get("esp_cipher", "aes256").lower()
+    esp_h   = tunnel.get("esp_hash",   "sha256").lower()
 
-    # DH group name mapping
-    dh_map = {
-        "DH14": "modp2048", "DH15": "modp3072", "DH16": "modp4096",
-        "DH19": "ecp256", "DH20": "ecp384", "DH21": "ecp521",
-    }
-    ike_dh = dh_map.get(tunnel.get("ike_dh", "DH14"), "modp2048")
-    pfs_dh = dh_map.get(tunnel.get("pfs_group", "DH14"), "modp2048")
+    ike_proposal = f"{ike_c}-{ike_h}-{ike_dh}"
+    esp_proposal = f"{esp_c}-{esp_h}-{pfs_dh}"
 
-    ike_proposal = f"{tunnel.get('ike_cipher','aes256').lower()}-{tunnel.get('ike_hash','sha256').lower()}-{ike_dh}"
-    esp_proposal = f"{tunnel.get('esp_cipher','aes256').lower()}-{tunnel.get('esp_hash','sha256').lower()}-{pfs_dh}"
+    local_ts   = tunnel.get("local_subnets",  "0.0.0.0/0")
+    remote_ts  = tunnel.get("remote_subnets", "0.0.0.0/0")
+    remote_gw  = tunnel["remote_gateway"]
+    psk        = tunnel.get("psk", "")
+    start_act  = "start" if tunnel.get("enabled", 1) else "none"
+    encap      = "yes" if tunnel.get("nat_traversal", 1) else "no"
+    dpd_delay  = tunnel.get("dpd_interval", 30)
+    dpd_action = "restart" if tunnel.get("dpd_enabled", 1) else "none"
 
-    left_subnets = tunnel.get("local_subnets", "")
-    right_subnets = tunnel.get("remote_subnets", "")
+    return f"""connections {{
+    {name} {{
+        remote_addrs = {remote_gw}
+        encap = {encap}
+        dpd_delay = {dpd_delay}s
+        local {{
+            auth = psk
+        }}
+        remote {{
+            auth = psk
+        }}
+        children {{
+            {name} {{
+                local_ts  = {local_ts}
+                remote_ts = {remote_ts}
+                esp_proposals = {esp_proposal}
+                start_action  = {start_act}
+                dpd_action    = {dpd_action}
+            }}
+        }}
+        version = {ike_ver}
+        proposals = {ike_proposal}
+        keyingtries = 0
+    }}
+}}
 
-    if tunnel.get("type") == "L2TP-IPSec":
-        return _write_l2tp_conf(tunnel)
-
-    conf = f"""
-conn {name}
-    keyexchange=ikev{ike_ver}
-    left=%defaultroute
-    leftid={tunnel.get('local_gateway','%defaultroute') or '%defaultroute'}
-    leftsubnet={left_subnets or '0.0.0.0/0'}
-    right={tunnel['remote_gateway']}
-    rightid={tunnel['remote_gateway']}
-    rightsubnet={right_subnets}
-    ike={ike_proposal}!
-    esp={esp_proposal}!
-    ikelifetime={tunnel.get('ike_lifetime',28800)}s
-    lifetime={tunnel.get('esp_lifetime',3600)}s
-    {'dpdaction=restart' if tunnel.get('dpd_enabled',1) else 'dpdaction=none'}
-    dpddelay={tunnel.get('dpd_interval',30)}s
-    dpdtimeout={tunnel.get('dpd_timeout',120)}s
-    {'aggressive=yes' if tunnel.get('aggressive_mode') else 'aggressive=no'}
-    {'forceencaps=yes' if tunnel.get('nat_traversal',1) else ''}
-    authby=secret
-    auto={'start' if tunnel.get('enabled',1) else 'ignore'}
-    type=tunnel
+secrets {{
+    ike-{name} {{
+        id = {remote_gw}
+        secret = "{psk}"
+    }}
+}}
 """
-    return conf
-
-
-def _write_l2tp_conf(tunnel):
-    name = tunnel["name"].replace(" ", "_")
-    return f"""
-conn {name}-l2tp
-    keyexchange=ikev1
-    left=%defaultroute
-    right={tunnel['remote_gateway']}
-    authby=secret
-    auto={'start' if tunnel.get('enabled',1) else 'ignore'}
-    type=transport
-    rightprotoport=17/1701
-    leftprotoport=17/%any
-"""
-
-
-def _write_strongswan_secrets(tunnels):
-    lines = ["# AegisGuard StrongSwan secrets"]
-    for t in tunnels:
-        if t.get("psk") and t["type"] in ("IKEv2", "IKEv1", "L2TP-IPSec"):
-            local = t.get("local_gateway") or "%any"
-            remote = t.get("remote_gateway", "%any")
-            lines.append(f'{local} {remote} : PSK "{t["psk"]}"')
-    return "\n".join(lines) + "\n"
 
 
 def apply_ipsec_tunnels():
-    """Write StrongSwan config and reload (auto-installs strongswan if missing)."""
+    """Write swanctl configs and reload charon (auto-installs if missing)."""
     if not IS_LINUX:
         return False, "IPSec management requires Linux"
 
-    # Auto-install strongswan if not present
-    ok_check, _, _ = run(["which", "ipsec"])
-    if not ok_check:
+    ok_swanctl, _, _ = run(["which", "swanctl"])
+    if not ok_swanctl:
         database.add_log("INFO", details="IPSec: installing strongswan...")
         run(["apt-get", "install", "-y",
              "strongswan", "strongswan-swanctl", "charon-systemd"], timeout=180)
@@ -116,31 +103,25 @@ def apply_ipsec_tunnels():
     if not ipsec_tunnels:
         return True, "No IPSec tunnels to apply"
 
-    conf_content = "# AegisGuard IPSec config\n# Generated: " + datetime.now().isoformat() + "\n"
-    conf_content += "config setup\n    charondebug=\"ike 2, knl 1, cfg 0\"\n\n"
-    conf_content += 'conn %default\n    ikelifetime=60m\n    keylife=20m\n    rekeymargin=3m\n    keyingtries=1\n\n'
-
-    for t in ipsec_tunnels:
-        conf_content += _write_strongswan_conf(t)
-
-    secrets_content = _write_strongswan_secrets(ipsec_tunnels)
-
     try:
-        with open(STRONGSWAN_CONF, "w") as f:
-            f.write(conf_content)
-        with open(STRONGSWAN_SECRETS, "w") as f:
-            f.write(secrets_content)
-        os.chmod(STRONGSWAN_SECRETS, 0o600)
-        ok, out, err = run(["ipsec", "reload"])
+        os.makedirs(SWANCTL_CONF_DIR, exist_ok=True)
+        for t in ipsec_tunnels:
+            name = t["name"].replace(" ", "_")
+            conf_path = os.path.join(SWANCTL_CONF_DIR, f"aegisguard-{name}.conf")
+            with open(conf_path, "w") as f:
+                f.write(_write_swanctl_conf(t))
+            os.chmod(conf_path, 0o600)
+
+        run(["systemctl", "restart", "strongswan"])
+        ok, out, err = run(["swanctl", "--load-all"])
         return ok, out if ok else err
     except Exception as e:
         return False, str(e)
 
 
 def connect_ipsec_tunnel(tunnel):
-    """Bring up a specific IPSec tunnel."""
     name = tunnel["name"].replace(" ", "_")
-    ok, out, err = run(["ipsec", "up", name], timeout=30)
+    ok, out, err = run(["swanctl", "--initiate", "--child", name], timeout=30)
     if ok:
         database.update_bov_tunnel(tunnel["id"], status="Up", last_up=datetime.now().isoformat())
         database.add_log("INFO", details=f"BOV IPSec UP: {tunnel['name']}")
@@ -151,15 +132,15 @@ def connect_ipsec_tunnel(tunnel):
 
 def disconnect_ipsec_tunnel(tunnel):
     name = tunnel["name"].replace(" ", "_")
-    ok, out, err = run(["ipsec", "down", name], timeout=15)
+    ok, out, err = run(["swanctl", "--terminate", "--ike", name], timeout=15)
     database.update_bov_tunnel(tunnel["id"], status="Down")
     database.add_log("INFO", details=f"BOV IPSec DOWN: {tunnel['name']}")
     return ok, out if ok else err
 
 
 def get_ipsec_status():
-    ok, out, _ = run(["ipsec", "status"])
-    return out if ok else "ipsec not available"
+    ok, out, _ = run(["swanctl", "--list-sas"])
+    return out if ok else "swanctl not available"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
