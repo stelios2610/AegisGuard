@@ -1150,6 +1150,82 @@
   </div>
 </div>
 
+<!-- Add WAN Link Modal -->
+<div class="modal-overlay" id="add-wan-modal">
+  <div class="modal" style="width:600px">
+    <div class="modal-header">
+      <span class="modal-title" id="wan-modal-title">Add WAN Link</span>
+      <button class="modal-close" onclick="closeModal('add-wan-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="wan-id">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Name *</label>
+          <input class="form-control" id="wan-name" placeholder="e.g. ISP-Primary, 4G-Backup">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Interface *</label>
+          <input class="form-control font-mono" id="wan-iface" placeholder="e.g. eth0, eth2">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Gateway *</label>
+          <input class="form-control font-mono" id="wan-gw" placeholder="e.g. 203.0.113.1">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Mode</label>
+          <select class="form-control" id="wan-mode">
+            <option value="failover">Failover (Priority-based)</option>
+            <option value="loadbalance">Load Balance (Weighted)</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Priority <span class="text-muted">(1=highest)</span></label>
+          <input class="form-control" id="wan-priority" type="number" min="1" max="99" value="1">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Weight <span class="text-muted">(load balance)</span></label>
+          <input class="form-control" id="wan-weight" type="number" min="1" max="100" value="1">
+        </div>
+      </div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin:12px 0 8px;border-top:1px solid var(--border);padding-top:10px">HEALTH CHECK</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Check IP</label>
+          <input class="form-control font-mono" id="wan-check-ip" value="8.8.8.8">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Interval (sec)</label>
+          <input class="form-control" id="wan-interval" type="number" value="10" min="2">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Timeout (sec)</label>
+          <input class="form-control" id="wan-timeout" type="number" value="3" min="1">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Failures before DOWN</label>
+          <input class="form-control" id="wan-failures" type="number" value="3" min="1">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <input class="form-control" id="wan-desc" placeholder="e.g. Fiber 1Gbps - Main ISP">
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="wan-enabled" checked> Link Enabled
+      </label>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('add-wan-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveWANLink()">Save Link</button>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
@@ -1608,84 +1684,6 @@ async function deleteQoS(id) {
   } catch (e) { toast('Error: ' + e.message, 'error'); }
 }
 
-// Close modals on backdrop click
-<!-- Add WAN Link Modal -->
-<div class="modal-overlay" id="add-wan-modal">
-  <div class="modal" style="width:600px">
-    <div class="modal-header">
-      <span class="modal-title" id="wan-modal-title">Add WAN Link</span>
-      <button class="modal-close" onclick="closeModal('add-wan-modal')">✕</button>
-    </div>
-    <div class="modal-body">
-      <input type="hidden" id="wan-id">
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Name *</label>
-          <input class="form-control" id="wan-name" placeholder="e.g. ISP-Primary, 4G-Backup">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Interface *</label>
-          <input class="form-control font-mono" id="wan-iface" placeholder="e.g. eth0, eth2">
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Gateway *</label>
-          <input class="form-control font-mono" id="wan-gw" placeholder="e.g. 203.0.113.1">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Mode</label>
-          <select class="form-control" id="wan-mode">
-            <option value="failover">Failover (Priority-based)</option>
-            <option value="loadbalance">Load Balance (Weighted)</option>
-          </select>
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Priority <span class="text-muted">(1=highest)</span></label>
-          <input class="form-control" id="wan-priority" type="number" min="1" max="99" value="1">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Weight <span class="text-muted">(load balance)</span></label>
-          <input class="form-control" id="wan-weight" type="number" min="1" max="100" value="1">
-        </div>
-      </div>
-      <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin:12px 0 8px;border-top:1px solid var(--border);padding-top:10px">HEALTH CHECK</div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Check IP</label>
-          <input class="form-control font-mono" id="wan-check-ip" value="8.8.8.8">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Interval (sec)</label>
-          <input class="form-control" id="wan-interval" type="number" value="10" min="2">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Timeout (sec)</label>
-          <input class="form-control" id="wan-timeout" type="number" value="3" min="1">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Failures before DOWN</label>
-          <input class="form-control" id="wan-failures" type="number" value="3" min="1">
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Description</label>
-        <input class="form-control" id="wan-desc" placeholder="e.g. Fiber 1Gbps - Main ISP">
-      </div>
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-        <input type="checkbox" id="wan-enabled" checked> Link Enabled
-      </label>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeModal('add-wan-modal')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveWANLink()">Save Link</button>
-    </div>
-  </div>
-</div>
-
-<script>
 // ── Multi-WAN ──
 async function refreshWANStatus() {
   const links = await GET('/api/network/wan-links/status');
