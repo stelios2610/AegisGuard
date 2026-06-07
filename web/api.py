@@ -40,6 +40,13 @@ if _IS_LINUX:
     except Exception:
         pass
 
+# Apply DHCP config to dnsmasq on every startup so fresh installs work
+if _IS_LINUX:
+    try:
+        network_manager.write_dhcp_config()
+    except Exception:
+        pass
+
 # ── Background log pruning (every hour, 2 GB limit) ──────────────────────────
 import threading as _threading
 
