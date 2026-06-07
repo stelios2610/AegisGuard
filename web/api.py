@@ -804,11 +804,11 @@ async def api_set_public_ip(request: Request):
 
 @app.get("/api/vpn/openvpn/detect-ip")
 async def api_detect_public_ip():
-    for service in ["ifconfig.me", "api.ipify.org", "icanhazip.com"]:
-        ok, ip, _ = run(["curl", "-s", "--max-time", "5", "--connect-timeout", "4",
+    for service in ["api4.ipify.org", "ipv4.icanhazip.com", "ifconfig.me"]:
+        ok, ip, _ = run(["curl", "-s", "-4", "--max-time", "5", "--connect-timeout", "4",
                           f"https://{service}"])
         ip = (ip or "").strip()
-        if ok and ip and len(ip) <= 45:
+        if ok and ip and ":" not in ip and len(ip) <= 15:
             return {"public_ip": ip}
     raise HTTPException(500, "Cannot detect public IP — check internet connection")
 
