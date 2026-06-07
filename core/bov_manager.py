@@ -113,6 +113,27 @@ def apply_ipsec_tunnels():
 
         run(["systemctl", "restart", "strongswan"])
         ok, out, err = run(["swanctl", "--load-all"])
+
+        # Exempt IPSec traffic from MASQUERADE (NAT breaks xfrm policy matching)
+        for t in ipsec_tunnels:
+            if not t.get("enabled", 1):
+                continue
+            local_ts = t.get("local_subnets", "").strip()
+            remote_ts = t.get("remote_subnets", "").strip()
+            if local_ts and remote_ts:
+                # Check if rule already exists before adding
+                chk, _, _ = run(["iptables", "-t", "nat", "-C", "POSTROUTING",
+                                  "-s", local_ts, "-d", remote_ts, "-j", "RETURN"])
+                if not chk:
+                    run(["iptables", "-t", "nat", "-I", "POSTROUTING", "1",
+                         "-s", local_ts, "-d", remote_ts, "-j", "RETURN"])
+                # Also allow forward from remote to local
+                chk2, _, _ = run(["iptables", "-C", "FORWARD",
+                                   "-s", remote_ts, "-d", local_ts, "-j", "ACCEPT"])
+                if not chk2:
+                    run(["iptables", "-I", "FORWARD", "1",
+                         "-s", remote_ts, "-d", local_ts, "-j", "ACCEPT"])
+
         return ok, out if ok else err
     except Exception as e:
         return False, str(e)
