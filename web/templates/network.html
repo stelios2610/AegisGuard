@@ -1310,9 +1310,15 @@ async function saveIface() {
   try {
     if (id) await PUT(`/api/network/interfaces/${id}`, data);
     else await POST('/api/network/interfaces', data);
-    toast('Interface saved', 'success');
+    toast('Applying interface configuration...', 'info');
+    const r = await POST('/api/network/apply-all');
+    if (r.status === 'ok') {
+      toast('Interface saved & applied to system', 'success');
+    } else {
+      toast('Saved to DB — apply failed: ' + (r.message || 'unknown error'), 'error');
+    }
     closeModal('add-iface-modal');
-    setTimeout(() => location.reload(), 600);
+    setTimeout(() => location.reload(), 1200);
   } catch (e) { toast('Error: ' + e.message, 'error'); }
 }
 
