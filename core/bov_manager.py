@@ -80,7 +80,6 @@ def _write_swanctl_conf(tunnel):
 
 secrets {{
     ike-{name} {{
-        id = {remote_gw}
         secret = "{psk}"
     }}
 }}
