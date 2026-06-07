@@ -455,6 +455,8 @@ async def api_apply_iface(iface_id: int):
     iface = next((i for i in ifaces if i["id"] == iface_id), None)
     if not iface: raise HTTPException(404)
     ok, msg = network_manager.apply_interface(iface)
+    if ok:
+        network_manager.write_dhcp_config()
     return {"status": "ok" if ok else "error", "message": msg}
 
 @app.post("/api/network/apply-all")
@@ -558,7 +560,9 @@ async def api_dhcp_config():
     return database.get_dhcp_configs()
 @app.post("/api/dhcp/config")
 async def api_save_dhcp(c: DhcpConfig):
-    database.save_dhcp_config(**c.model_dump()); return {"status": "ok"}
+    database.save_dhcp_config(**c.model_dump())
+    network_manager.write_dhcp_config()
+    return {"status": "ok"}
 @app.post("/api/dhcp/apply")
 async def api_apply_dhcp():
     ok, msg = network_manager.write_dhcp_config(); return {"status":"ok" if ok else "error","message":msg}

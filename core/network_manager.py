@@ -154,6 +154,7 @@ def write_dhcp_config():
         return False, "DHCP server config is Linux only"
     configs = database.get_dhcp_configs()
     leases = database.get_dhcp_leases()
+    iface_ips = {i["name"]: i.get("ip_address", "") for i in database.get_interfaces()}
 
     lines = [
         "# AegisGuard DHCP config (dnsmasq)",
@@ -176,13 +177,13 @@ def write_dhcp_config():
         if not cfg["enabled"]:
             continue
         iface = cfg["interface"]
+        fallback_ip = iface_ips.get(iface, "") or "10.0.0.1"
+        gw = cfg.get("gateway") or fallback_ip
         lines.append(f"interface={iface}")
         lines.append(f"dhcp-range={iface},{cfg['start_ip']},{cfg['end_ip']},{cfg['subnet_mask']},{cfg['lease_time']}s")
-        if cfg.get("gateway"):
-            lines.append(f"dhcp-option={iface},3,{cfg['gateway']}")
+        lines.append(f"dhcp-option={iface},3,{gw}")
         # Always point clients to this server for DNS so web filter works.
-        # dnsmasq forwards to upstream (server= lines above) for non-blocked domains.
-        lines.append(f"dhcp-option={iface},6,{cfg['gateway'] or '10.0.0.1'}")
+        lines.append(f"dhcp-option={iface},6,{gw}")
 
     for lease in leases:
         lines.append(f"dhcp-host={lease['mac']},{lease['ip']}" + (f",{lease['hostname']}" if lease.get("hostname") else ""))
