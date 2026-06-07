@@ -177,8 +177,9 @@ def write_dhcp_config():
         if not cfg["enabled"]:
             continue
         iface = cfg["interface"]
-        fallback_ip = iface_ips.get(iface, "") or "10.0.0.1"
-        gw = cfg.get("gateway") or fallback_ip
+        # Interface IP is always the gateway (the firewall IS the router).
+        # Fallback to manual config only if interface not in DB.
+        gw = iface_ips.get(iface, "") or cfg.get("gateway") or "10.0.0.1"
         lines.append(f"interface={iface}")
         lines.append(f"dhcp-range={iface},{cfg['start_ip']},{cfg['end_ip']},{cfg['subnet_mask']},{cfg['lease_time']}s")
         lines.append(f"dhcp-option={iface},3,{gw}")
