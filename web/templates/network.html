@@ -47,7 +47,7 @@
             <td><span class="badge badge-{{ 'allow' if iface.enabled else 'disabled' }}">{{ 'Up' if iface.enabled else 'Down' }}</span></td>
             <td>
               <div class="btn-group">
-                <button class="btn btn-secondary btn-sm" data-iface="{{ iface|tojson|e }}" onclick="editIface(JSON.parse(this.dataset.iface))">Edit</button>
+                <button class="btn btn-secondary btn-sm" onclick="editIface(IFACES_DATA.find(i=>i.id=={{ iface.id }}))">Edit</button>
                 <button class="btn btn-danger btn-sm" onclick="deleteIface({{ iface.id }})">✕</button>
               </div>
             </td>
@@ -1155,6 +1155,7 @@
 {% block extra_js %}
 <script>
 const TABS = ['interfaces','vlans','dmz','routes','dhcp','dns','nat','qos','multiwan'];
+const IFACES_DATA = {{ interfaces|tojson }};
 
 function switchTab(name) {
   TABS.forEach(t => {
