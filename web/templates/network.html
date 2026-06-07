@@ -47,7 +47,7 @@
             <td><span class="badge badge-{{ 'allow' if iface.enabled else 'disabled' }}">{{ 'Up' if iface.enabled else 'Down' }}</span></td>
             <td>
               <div class="btn-group">
-                <button class="btn btn-secondary btn-sm" onclick="editIface(IFACES_DATA.find(i=>i.id=={{ iface.id }}))">Edit</button>
+                <button class="btn btn-secondary btn-sm" onclick="editIfaceById({{ iface.id }})">Edit</button>
                 <button class="btn btn-danger btn-sm" onclick="deleteIface({{ iface.id }})">✕</button>
               </div>
             </td>
@@ -1155,7 +1155,6 @@
 {% block extra_js %}
 <script>
 const TABS = ['interfaces','vlans','dmz','routes','dhcp','dns','nat','qos','multiwan'];
-const IFACES_DATA = {{ interfaces|tojson }};
 
 function switchTab(name) {
   TABS.forEach(t => {
@@ -1190,6 +1189,15 @@ document.getElementById('vlan-dhcp-enabled').addEventListener('change', function
 });
 
 // ── Interfaces ──
+async function editIfaceById(id) {
+  try {
+    const ifaces = {{ interfaces|tojson }};
+    const iface = ifaces.find(i => i.id == id);
+    if (iface) { editIface(iface); }
+    else { toast('Interface not found', 'error'); }
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
 function editIface(iface) {
   document.getElementById('iface-id').value = iface.id;
   document.getElementById('iface-name').value = iface.name;
