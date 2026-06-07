@@ -144,6 +144,15 @@ def apply_ipsec_tunnels():
                 run(["iptables", "-I", "FORWARD", "1",
                      "-s", remote_ts, "-d", local_ts, "-j", "ACCEPT"])
 
+        # 4. Open IKE + NAT-T ports for IPSec negotiation on WAN
+        for proto_port in [("udp", "500"), ("udp", "4500")]:
+            proto, port = proto_port
+            chk_p, _, _ = run(["iptables", "-C", "INPUT",
+                                "-p", proto, "--dport", port, "-j", "ACCEPT"])
+            if not chk_p:
+                run(["iptables", "-I", "INPUT", "1",
+                     "-p", proto, "--dport", port, "-j", "ACCEPT"])
+
         return ok, out if ok else err
     except Exception as e:
         return False, str(e)

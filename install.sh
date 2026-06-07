@@ -143,6 +143,8 @@ iptables -A INPUT -i "${LAN_IF}" -j ACCEPT 2>/dev/null || true
 iptables -A INPUT -i "${WAN_IF}" -p udp --dport 1194 -j ACCEPT 2>/dev/null || true
 iptables -A INPUT -i "${WAN_IF}" -p tcp --dport 1194 -j ACCEPT 2>/dev/null || true
 iptables -A INPUT -i "${WAN_IF}" -p udp --dport 51820 -j ACCEPT 2>/dev/null || true
+iptables -A INPUT -i "${WAN_IF}" -p udp --dport 500  -j ACCEPT 2>/dev/null || true
+iptables -A INPUT -i "${WAN_IF}" -p udp --dport 4500 -j ACCEPT 2>/dev/null || true
 iptables -A INPUT -i tun0 -j ACCEPT 2>/dev/null || true
 iptables -A INPUT -i "${WAN_IF}" -j DROP 2>/dev/null || true
 iptables -P INPUT DROP 2>/dev/null || true
@@ -153,20 +155,21 @@ log "NAT + Firewall configured"
 sed -i 's/#DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf 2>/dev/null || true
 sed -i 's/DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf 2>/dev/null || true
 systemctl restart systemd-resolved 2>/dev/null || true
+# Clean any old embedded block from main dnsmasq.conf (legacy)
 sed -i '/# AegisGuard DHCP config/,$ d' /etc/dnsmasq.conf 2>/dev/null || true
-cat >> /etc/dnsmasq.conf << EOF
-# AegisGuard DHCP config (dnsmasq)
-# Listen only on LAN interface to avoid conflict with systemd-resolved
-listen-address=10.0.0.1
-bind-interfaces
+# Write DHCP config to the correct drop-in file (AegisGuard manages this file)
+mkdir -p /etc/dnsmasq.d
+cat > /etc/dnsmasq.d/aegisguard.conf << EOF
+# AegisGuard managed - do not edit
 no-resolv
 no-poll
 bogus-priv
 domain-needed
-server=1.1.1.1
 server=8.8.8.8
+server=1.1.1.1
 local=/aegis.local/
 domain=aegis.local
+
 interface=${LAN_IF}
 dhcp-range=${LAN_IF},10.0.0.100,10.0.0.200,255.255.255.0,86400s
 dhcp-option=${LAN_IF},3,10.0.0.1
