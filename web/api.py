@@ -426,6 +426,14 @@ async def api_get_ifaces():
 async def api_add_iface(iface: IfaceCreate):
     database.add_interface(**iface.model_dump()); return {"status": "ok"}
 
+@app.get("/api/network/interfaces/{iface_id}")
+async def api_get_iface(iface_id: int):
+    conn = database.get_connection()
+    row = conn.execute("SELECT * FROM interfaces WHERE id=?", (iface_id,)).fetchone()
+    conn.close()
+    if not row: raise HTTPException(status_code=404, detail="Not found")
+    return dict(row)
+
 @app.put("/api/network/interfaces/{iface_id}")
 async def api_update_iface(iface_id: int, iface: IfaceCreate):
     database.update_interface(iface_id, **iface.model_dump()); return {"status": "ok"}

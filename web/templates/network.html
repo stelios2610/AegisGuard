@@ -1191,10 +1191,10 @@ document.getElementById('vlan-dhcp-enabled').addEventListener('change', function
 // ── Interfaces ──
 async function editIfaceById(id) {
   try {
-    const ifaces = {{ interfaces|tojson }};
-    const iface = ifaces.find(i => i.id == id);
-    if (iface) { editIface(iface); }
-    else { toast('Interface not found', 'error'); }
+    const r = await fetch('/api/network/interfaces/' + id);
+    if (!r.ok) { toast('Interface not found', 'error'); return; }
+    const iface = await r.json();
+    editIface(iface);
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
