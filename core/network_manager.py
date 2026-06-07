@@ -165,10 +165,10 @@ def write_dhcp_config():
     ]
 
     dns_s = database.get_dns_settings()
-    if dns_s.get("primary_dns"):
-        lines.append(f"server={dns_s['primary_dns']}")
-    if dns_s.get("secondary_dns"):
-        lines.append(f"server={dns_s['secondary_dns']}")
+    primary = dns_s.get("primary_dns") or "8.8.8.8"
+    secondary = dns_s.get("secondary_dns") or "1.1.1.1"
+    lines.append(f"server={primary}")
+    lines.append(f"server={secondary}")
     if dns_s.get("local_domain"):
         lines.append(f"local=/{dns_s['local_domain']}/")
         lines.append(f"domain={dns_s['local_domain']}")
