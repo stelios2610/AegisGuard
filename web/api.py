@@ -935,9 +935,10 @@ async def api_ddos_unblock_all():
 
 @app.post("/api/security/geoip")
 async def api_save_geoip(request: Request):
+    import json as _json
     data = await request.json()
     codes = data.get("blocked_countries", [])
-    database.set_setting("geoip_blocked_countries", ",".join(codes))
+    database.set_setting("blocked_countries", _json.dumps(codes))
     return {"status": "ok"}
 
 @app.post("/api/security/ddos/config")
