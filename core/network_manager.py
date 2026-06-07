@@ -191,6 +191,18 @@ def write_dhcp_config():
 
     conf = "\n".join(lines) + "\n"
     try:
+        # Remove old AegisGuard block if it was previously embedded in dnsmasq.conf
+        main_conf_path = "/etc/dnsmasq.conf"
+        try:
+            with open(main_conf_path) as f:
+                main = f.read()
+            idx = main.find("# AegisGuard DHCP config")
+            if idx != -1:
+                with open(main_conf_path, "w") as f:
+                    f.write(main[:idx].rstrip() + "\n")
+        except Exception:
+            pass
+
         with open("/etc/dnsmasq.d/aegisguard.conf", "w") as f:
             f.write(conf)
         run(["systemctl", "restart", "dnsmasq"])
