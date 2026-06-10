@@ -47,6 +47,13 @@ if _IS_LINUX:
     except Exception:
         pass
 
+# Ensure LAN interface is up with correct IP on every startup
+if _IS_LINUX:
+    try:
+        network_manager.ensure_lan_up()
+    except Exception:
+        pass
+
 # ── Background log pruning (every hour, 2 GB limit) ──────────────────────────
 import threading as _threading
 
