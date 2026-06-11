@@ -100,18 +100,11 @@ systemctl restart fail2ban 2>/dev/null || true
 log "fail2ban configured"
 
 # ── 8. Network: Netplan + ip_forward + NAT + dnsmasq ─────────────────────────
-info "[8/9] Configuring network (${LAN_IF}, NAT, DHCP)..."
+info "[8/9] Configuring network (eth1, NAT, DHCP)..."
 
-# Prevent cloud-init from overwriting our netplan config on reboot
-mkdir -p /etc/cloud/cloud.cfg.d
-cat > /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg << 'CLOUDINIT'
-network: {config: disabled}
-CLOUDINIT
-
-# Remove ALL existing netplan configs to avoid conflicts
-find /etc/netplan -maxdepth 1 \( -name "*.yaml" -o -name "*.yml" \) -delete 2>/dev/null || true
-
-# Write our netplan config
+# Netplan
+rm -f /etc/netplan/00-installer-config.yaml 2>/dev/null || true
+rm -f /etc/netplan/50-cloud-init.yaml 2>/dev/null || true
 cat > /etc/netplan/50-aegisguard.yaml << EOF
 network:
   version: 2
@@ -124,16 +117,10 @@ network:
         - 10.0.0.1/24
 EOF
 chmod 600 /etc/netplan/50-aegisguard.yaml
-
-# Bring both interfaces up before applying netplan
-ip link set "${WAN_IF}" up 2>/dev/null || true
-ip link set "${LAN_IF}" up 2>/dev/null || true
 netplan apply 2>/dev/null || true
-sleep 3
-
-# Force LAN IP in case netplan didn't apply it yet
+sleep 2
 ip link set "${LAN_IF}" up 2>/dev/null || true
-ip addr show "${LAN_IF}" | grep -q "10.0.0.1" || ip addr add 10.0.0.1/24 dev "${LAN_IF}" 2>/dev/null || true
+ip addr add 10.0.0.1/24 dev "${LAN_IF}" 2>/dev/null || true
 log "LAN ${LAN_IF} = 10.0.0.1/24"
 
 # ip_forward
@@ -203,22 +190,8 @@ sys.path.insert(0, '/opt/aegisguard')
 from db import database
 database.initialize()
 conn = database.get_connection()
-
-# Update settings with detected interface names
 conn.execute("INSERT OR REPLACE INTO settings (key,value) VALUES ('wan_interface','${WAN_IF}')")
 conn.execute("INSERT OR REPLACE INTO settings (key,value) VALUES ('lan_interface','${LAN_IF}')")
-
-# If detected interfaces differ from default eth0/eth1 seeds, update the interfaces table
-if '${WAN_IF}' != 'eth0':
-    conn.execute("UPDATE interfaces SET name=? WHERE name='eth0' AND role='WAN'", ('${WAN_IF}',))
-if '${LAN_IF}' != 'eth1':
-    conn.execute("UPDATE interfaces SET name=? WHERE name='eth1' AND role='LAN'", ('${LAN_IF}',))
-    conn.execute("UPDATE dhcp_config SET interface=? WHERE interface='eth1'", ('${LAN_IF}',))
-
-# Always ensure the LAN interface record has correct static IP
-conn.execute("""UPDATE interfaces SET ip_mode='static', ip_address='10.0.0.1',
-    netmask='255.255.255.0' WHERE name=? AND role='LAN'""", ('${LAN_IF}',))
-
 conn.commit()
 conn.close()
 print("Database initialized")

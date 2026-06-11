@@ -488,32 +488,3 @@ def get_dhcp_relay_status():
     ok, out, _ = run(["pgrep", "-a", "dhcrelay"])
     return {"running": ok, "process": out.strip() if ok else ""}
 
-
-def ensure_lan_up():
-    """Bring up LAN interface with correct static IP on every service startup."""
-    if not IS_LINUX:
-        return
-
-    ifaces = database.get_interfaces()
-    lan = next((i for i in ifaces if i["role"] == "LAN" and i["enabled"]), None)
-
-    if not lan:
-        conn = database.get_connection()
-        row = conn.execute("SELECT value FROM settings WHERE key='lan_interface'").fetchone()
-        conn.close()
-        lan_name = row["value"] if row else "eth1"
-        lan_ip = "10.0.0.1"
-        lan_prefix = 24
-    else:
-        lan_name = lan["name"]
-        lan_ip = lan.get("ip_address") or "10.0.0.1"
-        lan_prefix = _netmask_to_prefix(lan.get("netmask") or "255.255.255.0")
-
-    run(["ip", "link", "set", lan_name, "up"])
-
-    ok, out, _ = run(["ip", "addr", "show", lan_name])
-    if ok and f"{lan_ip}/" not in out:
-        run(["ip", "addr", "add", f"{lan_ip}/{lan_prefix}", "dev", lan_name])
-
-    run(["sysctl", "-w", "net.ipv4.ip_forward=1"])
-
