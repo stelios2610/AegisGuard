@@ -221,6 +221,7 @@
               <div class="btn-group">
                 <button class="btn btn-secondary btn-sm" onclick="downloadUserConfig({{ u.id }},'{{ u.username }}')">↓ .ovpn</button>
                 <button class="btn btn-secondary btn-sm" onclick="toggleVPNUser({{ u.id }},{{ u.enabled }})">{{ 'Disable' if u.enabled else 'Enable' }}</button>
+                <button class="btn btn-secondary btn-sm" onclick="setVpnUserPassword({{ u.id }},'{{ u.username }}')">Password</button>
                 <button class="btn btn-secondary btn-sm" onclick="enableUserMFA({{ u.id }},'{{ u.username }}')">MFA</button>
                 <button class="btn btn-danger btn-sm" onclick="deleteVPNUser({{ u.id }})">✕</button>
               </div>
@@ -715,6 +716,11 @@ async function saveVPNUser() {
 async function downloadUserConfig(id,u) { window.open(`/api/vpn/users/${id}/config`,'_blank'); }
 async function toggleVPNUser(id,en) { await POST(`/api/vpn/users/${id}/toggle`); toast(en?'Disabled':'Enabled','success'); setTimeout(()=>location.reload(),400); }
 async function deleteVPNUser(id) { if (!confirm2('Delete VPN user?')) return; await DELETE(`/api/vpn/users/${id}`); document.getElementById(`vuser-${id}`)?.remove(); toast('Deleted','success'); }
+async function setVpnUserPassword(id,username) {
+  const pw = prompt(`New password for ${username}:`);
+  if (!pw) return;
+  try { await PUT(`/api/vpn/users/${id}/password`,{password:pw}); toast('Password updated','success'); } catch(e) { toast('Error: '+e.message,'error'); }
+}
 async function enableUserMFA(id,u) { const r = await POST(`/api/auth/users/${id}/mfa/enable`); document.getElementById('mfa-secret').value=r.secret||''; document.getElementById('mfa-uri').value=r.qr_uri||''; openModal('mfa-modal'); }
 
 async function generateWGKeys() { const r = await POST('/api/vpn/wireguard/keygen'); document.getElementById('wg-gen-priv').value=r.private_key; document.getElementById('wg-gen-pub').value=r.public_key; document.getElementById('wg-gen-psk').value=r.preshared_key; }
