@@ -204,7 +204,10 @@ async def firewall_page(request: Request):
 @app.get("/appcontrol", response_class=HTMLResponse)
 async def appcontrol_page(request: Request):
     return _ctx(request, template="appcontrol.html",
-                rules=database.get_app_rules(), running=app_control.get_running_apps())
+                rules=database.get_app_rules(),
+                running=app_control.get_running_apps(),
+                predefined_apps=app_control.PREDEFINED_APPS,
+                app_block_status=app_control.get_app_block_status())
 
 @app.get("/webfilter", response_class=HTMLResponse)
 async def webfilter_page(request: Request):
@@ -714,6 +717,24 @@ async def api_sync_app():
 @app.get("/api/appcontrol/running")
 async def api_running():
     return app_control.get_running_apps()
+
+@app.post("/api/appcontrol/block/{app_name}")
+async def api_block_app(app_name: str):
+    ok, msg = app_control.apply_app_block(app_name)
+    if not ok:
+        raise HTTPException(status_code=400, detail=msg)
+    return {"status": "ok", "message": msg}
+
+@app.delete("/api/appcontrol/block/{app_name}")
+async def api_unblock_app(app_name: str):
+    ok, msg = app_control.remove_app_block(app_name)
+    if not ok:
+        raise HTTPException(status_code=400, detail=msg)
+    return {"status": "ok", "message": msg}
+
+@app.get("/api/appcontrol/blocks")
+async def api_get_blocks():
+    return app_control.get_app_block_status()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

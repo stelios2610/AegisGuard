@@ -5,6 +5,151 @@ import psutil
 from db import database
 from core.platform import IS_LINUX, run
 
+# ─── Predefined app blocks (gateway-level: DNS + port blocking) ───────────────
+
+APPBLOCK_DNSMASQ = "/etc/dnsmasq.d/aegisguard-appblock.conf"
+
+PREDEFINED_APPS = {
+    "AnyDesk": {
+        "description": "Remote desktop access tool",
+        "icon": "🖥",
+        "domains": ["anydesk.com", "relay.anydesk.com", "net.anydesk.com", "static.anydesk.com"],
+        "ports": [("tcp", 7070), ("udp", 7070)],
+    },
+    "TeamViewer": {
+        "description": "Remote support & desktop sharing",
+        "icon": "🖥",
+        "domains": ["teamviewer.com", "router.teamviewer.com", "teamviewerrelay.com"],
+        "ports": [("tcp", 5938), ("udp", 5938)],
+    },
+    "Discord": {
+        "description": "Gaming chat & VoIP",
+        "icon": "💬",
+        "domains": ["discord.com", "discord.gg", "discordapp.com", "discordapp.net", "discord.media"],
+        "ports": [],
+    },
+    "TikTok": {
+        "description": "Short video social media",
+        "icon": "📱",
+        "domains": ["tiktok.com", "tiktokcdn.com", "tiktokv.com", "muscdn.com", "bytedance.com"],
+        "ports": [],
+    },
+    "Zoom": {
+        "description": "Video conferencing",
+        "icon": "📹",
+        "domains": ["zoom.us", "zoom.com", "zoomgov.com"],
+        "ports": [("tcp", 8801), ("tcp", 8802), ("udp", 8801), ("udp", 8802)],
+    },
+    "WhatsApp": {
+        "description": "Messaging & calls",
+        "icon": "💬",
+        "domains": ["web.whatsapp.com", "whatsapp.com", "whatsapp.net"],
+        "ports": [],
+    },
+    "Telegram": {
+        "description": "Messaging & channels",
+        "icon": "✈",
+        "domains": ["telegram.org", "telegram.me", "t.me", "telegram.im", "telegra.ph"],
+        "ports": [],
+    },
+    "Torrent": {
+        "description": "BitTorrent P2P file sharing",
+        "icon": "⬇",
+        "domains": ["thepiratebay.org", "1337x.to", "rarbg.to", "nyaa.si"],
+        "ports": [("tcp", 6881), ("tcp", 6882), ("tcp", 6883), ("tcp", 6884),
+                  ("tcp", 6885), ("tcp", 6886), ("tcp", 6887), ("tcp", 6888), ("tcp", 6889),
+                  ("udp", 6881), ("udp", 6889)],
+    },
+    "Skype": {
+        "description": "Video calls & messaging",
+        "icon": "📞",
+        "domains": ["skype.com", "skypeassets.com", "skypecdn.com"],
+        "ports": [("tcp", 3478), ("tcp", 3479), ("udp", 3478), ("udp", 3479)],
+    },
+    "TeamSpeak": {
+        "description": "Voice chat for gaming",
+        "icon": "🎙",
+        "domains": ["teamspeak.com", "teamspeak.net"],
+        "ports": [("udp", 9987), ("tcp", 10011), ("tcp", 30033)],
+    },
+}
+
+
+def _appblock_comment(app_name):
+    safe = app_name.replace(" ", "_")
+    return f"aegisguard_appblock_{safe}"
+
+
+def _write_appblock_dnsmasq():
+    """Rewrite /etc/dnsmasq.d/aegisguard-appblock.conf with all enabled app blocks."""
+    if not IS_LINUX:
+        return
+    lines = ["# AegisGuard App Block — auto-generated", ""]
+    for name, cfg in PREDEFINED_APPS.items():
+        key = f"appblock_{name}"
+        if database.get_setting(key) == "1":
+            for domain in cfg["domains"]:
+                lines.append(f"address=/{domain}/0.0.0.0")
+                lines.append(f"address=/{domain}/::")
+    try:
+        with open(APPBLOCK_DNSMASQ, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        run(["systemctl", "restart", "dnsmasq"])
+    except Exception:
+        pass
+
+
+def _remove_appblock_iptables(app_name):
+    """Remove all iptables FORWARD rules for this app block."""
+    tag = _appblock_comment(app_name)
+    for chain in ("FORWARD", "INPUT", "OUTPUT"):
+        while True:
+            ok, out, _ = run(["iptables", "-L", chain, "--line-numbers", "-n"])
+            if not ok:
+                break
+            lines = [l for l in out.splitlines() if tag in l]
+            if not lines:
+                break
+            num = lines[0].split()[0]
+            run(["iptables", "-D", chain, num])
+
+
+def apply_app_block(app_name):
+    """Enable gateway-level blocking for a predefined app."""
+    cfg = PREDEFINED_APPS.get(app_name)
+    if not cfg:
+        return False, f"Unknown app: {app_name}"
+    database.set_setting(f"appblock_{app_name}", "1")
+    if IS_LINUX:
+        _remove_appblock_iptables(app_name)
+        comment = _appblock_comment(app_name)
+        for proto, port in cfg["ports"]:
+            run(["iptables", "-A", "FORWARD",
+                 "-p", proto, "--dport", str(port),
+                 "-m", "comment", "--comment", comment,
+                 "-j", "DROP"])
+        _write_appblock_dnsmasq()
+        run(["netfilter-persistent", "save"])
+    return True, f"{app_name} blocked"
+
+
+def remove_app_block(app_name):
+    """Disable gateway-level blocking for a predefined app."""
+    database.set_setting(f"appblock_{app_name}", "0")
+    if IS_LINUX:
+        _remove_appblock_iptables(app_name)
+        _write_appblock_dnsmasq()
+        run(["netfilter-persistent", "save"])
+    return True, f"{app_name} unblocked"
+
+
+def get_app_block_status():
+    """Return dict {app_name: bool} with current block state."""
+    return {
+        name: database.get_setting(f"appblock_{name}") == "1"
+        for name in PREDEFINED_APPS
+    }
+
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
