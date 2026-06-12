@@ -516,11 +516,15 @@ def _fw_ensure(table_args):
 
 
 def _fw_ensure_insert(pos, table_args):
-    """Insert an iptables rule at position only if it doesn't already exist."""
+    """Insert an iptables rule at position only if it doesn't already exist.
+    table_args must start with chain name, e.g. ["FORWARD", "-i", ...]
+    """
     check = ["iptables", "-C"] + table_args
     ok, _, _ = run(check)
     if not ok:
-        run(["iptables", "-I"] + [str(pos)] + table_args)
+        chain = table_args[0]
+        rest = table_args[1:]
+        run(["iptables", "-I", chain, str(pos)] + rest)
 
 
 def apply_vlans():
