@@ -186,6 +186,22 @@ def write_dhcp_config():
         # Always point clients to this server for DNS so web filter works.
         lines.append(f"dhcp-option={iface},6,{gw}")
 
+    # Add DHCP for enabled VLANs that have dhcp_enabled + start/end configured
+    for v in database.get_vlans():
+        if not v.get("enabled") or not v.get("dhcp_enabled"):
+            continue
+        start = v.get("dhcp_start", "").strip()
+        end = v.get("dhcp_end", "").strip()
+        gw = v.get("ip_address", "").strip()
+        nm = v.get("netmask", "255.255.255.0")
+        if not (start and end and gw):
+            continue
+        viface = f"{v['parent_interface']}.{v['vlan_id']}"
+        lines.append(f"interface={viface}")
+        lines.append(f"dhcp-range={viface},{start},{end},{nm},86400s")
+        lines.append(f"dhcp-option={viface},3,{gw}")
+        lines.append(f"dhcp-option={viface},6,{gw}")
+
     for lease in leases:
         lines.append(f"dhcp-host={lease['mac']},{lease['ip']}" + (f",{lease['hostname']}" if lease.get("hostname") else ""))
 
