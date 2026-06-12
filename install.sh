@@ -226,8 +226,11 @@ conn = database.get_connection()
 conn.execute("INSERT OR REPLACE INTO settings (key,value) VALUES ('wan_interface','${WAN_IF}')")
 conn.execute("INSERT OR REPLACE INTO settings (key,value) VALUES ('lan_interface','${LAN_IF}')")
 conn.commit()
+# Ensure dhcp_config uses the correct LAN interface (not a stale default from db schema)
+conn.execute("UPDATE dhcp_config SET interface='${LAN_IF}' WHERE id=1")
+conn.commit()
 conn.close()
-print("Database initialized")
+print("Database initialized with LAN=${LAN_IF}")
 PYEOF
 
 # VPN auth scripts
