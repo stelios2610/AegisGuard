@@ -15,12 +15,16 @@ PREDEFINED_APPS = {
         "icon": "🖥",
         "domains": ["anydesk.com", "relay.anydesk.com", "net.anydesk.com", "static.anydesk.com"],
         "ports": [("tcp", 7070), ("udp", 7070)],
+        # AnyDesk GmbH own relay server IP ranges (not Cloudflare, these are their actual relays)
+        "ip_ranges": ["195.211.220.0/23", "194.165.82.0/24", "194.165.16.0/24",
+                      "104.18.30.170/32", "104.18.31.170/32"],
     },
     "TeamViewer": {
         "description": "Remote support & desktop sharing",
         "icon": "🖥",
         "domains": ["teamviewer.com", "router.teamviewer.com", "teamviewerrelay.com"],
         "ports": [("tcp", 5938), ("udp", 5938)],
+        "ip_ranges": ["178.77.120.0/21"],
     },
     "Discord": {
         "description": "Gaming chat & VoIP",
@@ -123,9 +127,16 @@ def apply_app_block(app_name):
     if IS_LINUX:
         _remove_appblock_iptables(app_name)
         comment = _appblock_comment(app_name)
-        for proto, port in cfg["ports"]:
+        # Block by destination port
+        for proto, port in cfg.get("ports", []):
             run(["iptables", "-A", "FORWARD",
                  "-p", proto, "--dport", str(port),
+                 "-m", "comment", "--comment", comment,
+                 "-j", "DROP"])
+        # Block by destination IP range (catches hardcoded IPs and fallback connections)
+        for ip_range in cfg.get("ip_ranges", []):
+            run(["iptables", "-A", "FORWARD",
+                 "-d", ip_range,
                  "-m", "comment", "--comment", comment,
                  "-j", "DROP"])
         _write_appblock_dnsmasq()
