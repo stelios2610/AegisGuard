@@ -112,7 +112,7 @@
             <td>
               {% if v.zone == 'LAN' %}<span class="badge badge-allow">LAN</span>
               {% elif v.zone == 'DMZ' %}<span class="badge badge-warn">DMZ</span>
-              {% elif v.zone == 'TRUSTED' %}<span class="badge badge-allow">TRUSTED</span>
+              {% elif v.zone == 'OPTIONAL' %}<span class="badge badge-warn">OPTIONAL</span>
               {% elif v.zone == 'EXTERNAL' %}<span class="badge badge-block">EXTERNAL</span>
               {% else %}<span class="badge badge-info">{{ v.zone }}</span>{% endif %}
             </td>
@@ -685,10 +685,9 @@
         <div class="form-group">
           <label class="form-label">Zone</label>
           <select class="form-control" id="vlan-zone">
-            <option value="LAN">LAN</option>
-            <option value="DMZ">DMZ</option>
-            <option value="OPTIONAL" selected>OPTIONAL</option>
-            <option value="TRUSTED">TRUSTED</option>
+            <option value="LAN">LAN — full inter-VLAN access</option>
+            <option value="DMZ">DMZ — isolated, no LAN access</option>
+            <option value="OPTIONAL" selected>OPTIONAL — isolated, no LAN access</option>
             <option value="EXTERNAL">EXTERNAL</option>
           </select>
         </div>

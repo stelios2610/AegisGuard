@@ -507,6 +507,22 @@ def get_dhcp_relay_status():
 
 # ─── VLANs (802.1Q) ───────────────────────────────────────────────────────────
 
+def _fw_ensure(table_args):
+    """Add an iptables rule only if it doesn't already exist."""
+    check = ["iptables", "-C"] + table_args
+    ok, _, _ = run(check)
+    if not ok:
+        run(["iptables", "-A"] + table_args)
+
+
+def _fw_ensure_insert(pos, table_args):
+    """Insert an iptables rule at position only if it doesn't already exist."""
+    check = ["iptables", "-C"] + table_args
+    ok, _, _ = run(check)
+    if not ok:
+        run(["iptables", "-I"] + [str(pos)] + table_args)
+
+
 def apply_vlans():
     """Create/update 802.1Q VLAN subinterfaces for all enabled VLANs in DB."""
     if not IS_LINUX:
@@ -514,8 +530,14 @@ def apply_vlans():
 
     vlans = database.get_vlans()
     wan_if = database.get_setting("wan_interface") or "eth0"
+    lan_if = database.get_setting("lan_interface") or "eth1"
     errors = []
     applied = []
+
+    # Classify interfaces by zone
+    # Main LAN interface is always in the LAN zone
+    lan_ifaces = [lan_if]
+    isolated_ifaces = []  # DMZ / OPTIONAL — LAN cannot reach these
 
     for v in vlans:
         if not v.get("enabled"):
@@ -528,6 +550,7 @@ def apply_vlans():
         netmask = v.get("netmask", "255.255.255.0")
         mtu = v.get("mtu", 1500) or 1500
         prefix = _netmask_to_prefix(netmask)
+        zone = (v.get("zone") or "LAN").upper()
 
         # Ensure parent interface is up
         run(["ip", "link", "set", parent, "up"])
@@ -550,18 +573,29 @@ def apply_vlans():
             if not ok:
                 errors.append(f"{iface} IP: {err}")
 
-        # iptables: allow FORWARD from VLAN to WAN
-        run(["iptables", "-C", "FORWARD", "-i", iface, "-o", wan_if, "-j", "ACCEPT"])
-        ok, _, _ = run(["iptables", "-C", "FORWARD", "-i", iface, "-o", wan_if, "-j", "ACCEPT"])
-        if not ok:
-            run(["iptables", "-I", "FORWARD", "1", "-i", iface, "-o", wan_if, "-j", "ACCEPT"])
+        # Allow VLAN → WAN forwarding
+        _fw_ensure_insert(1, ["FORWARD", "-i", iface, "-o", wan_if, "-j", "ACCEPT"])
 
-        # iptables: allow INPUT from VLAN (so firewall itself is reachable)
-        ok, _, _ = run(["iptables", "-C", "INPUT", "-i", iface, "-j", "ACCEPT"])
-        if not ok:
-            run(["iptables", "-I", "INPUT", "3", "-i", iface, "-j", "ACCEPT"])
+        # Allow firewall itself to be reachable from VLAN (DNS, DHCP, web UI)
+        _fw_ensure_insert(3, ["INPUT", "-i", iface, "-j", "ACCEPT"])
+
+        if zone == "LAN":
+            lan_ifaces.append(iface)
+        elif zone in ("DMZ", "OPTIONAL"):
+            isolated_ifaces.append(iface)
 
         applied.append(iface)
+
+    # Inter-LAN routing: all LAN zone interfaces can reach each other
+    for i, a in enumerate(lan_ifaces):
+        for b in lan_ifaces[i + 1:]:
+            _fw_ensure_insert(1, ["FORWARD", "-i", a, "-o", b, "-j", "ACCEPT"])
+            _fw_ensure_insert(1, ["FORWARD", "-i", b, "-o", a, "-j", "ACCEPT"])
+
+    # Isolation: block LAN → DMZ/OPTIONAL (append so it runs after ESTABLISHED)
+    for lan in lan_ifaces:
+        for iso in isolated_ifaces:
+            _fw_ensure(["FORWARD", "-i", lan, "-o", iso, "-j", "DROP"])
 
     # Persist VLAN interfaces in netplan
     _write_vlan_netplan(vlans, wan_if)
