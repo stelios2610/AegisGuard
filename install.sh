@@ -154,7 +154,6 @@ iptables -F INPUT 2>/dev/null || true
 iptables -A INPUT -i lo -j ACCEPT 2>/dev/null || true
 iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
 iptables -A INPUT -i "${LAN_IF}" -j ACCEPT 2>/dev/null || true
-iptables -A INPUT -i "${WAN_IF}" -p tcp --dport 22   -j ACCEPT 2>/dev/null || true
 iptables -A INPUT -i "${WAN_IF}" -p udp --dport 1194 -j ACCEPT 2>/dev/null || true
 iptables -A INPUT -i "${WAN_IF}" -p tcp --dport 1194 -j ACCEPT 2>/dev/null || true
 iptables -A INPUT -i "${WAN_IF}" -p udp --dport 51820 -j ACCEPT 2>/dev/null || true
