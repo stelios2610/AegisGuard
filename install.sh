@@ -156,6 +156,11 @@ cat > /etc/iptables/rules.v4 << IPRULES
 :AEGISGUARD_INPUT - [0:0]
 :AEGISGUARD_OUTPUT - [0:0]
 -A INPUT -i ${WAN_IF} -p tcp --dport 22 -j DROP
+-A INPUT -i ${WAN_IF} -p tcp --dport 80 -j DROP
+-A INPUT -i ${WAN_IF} -p tcp --dport 443 -j DROP
+-A INPUT -i ${WAN_IF} -p tcp --dport 8080 -j DROP
+-A INPUT -i ${WAN_IF} -p tcp --dport 53 -j DROP
+-A INPUT -i ${WAN_IF} -p udp --dport 53 -j DROP
 -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
 -A INPUT -i lo -j ACCEPT
 -A INPUT -i ${LAN_IF} -j ACCEPT
@@ -196,8 +201,30 @@ sed -i '/^ListenAddress/d' /etc/ssh/sshd_config.d/50-cloud-init.conf 2>/dev/null
 sed -i '/^ListenAddress/d' /etc/ssh/sshd_config
 echo "ListenAddress 127.0.0.1" >> /etc/ssh/sshd_config
 echo "ListenAddress 10.0.0.1" >> /etc/ssh/sshd_config
+# Disable root login and ensure sensible defaults
+sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
 systemctl restart ssh
-log "SSH restricted to LAN interface only"
+log "SSH restricted to LAN interface only (PermitRootLogin no)"
+
+# fail2ban — brute-force protection for SSH
+DEBIAN_FRONTEND=noninteractive apt-get install -y fail2ban > /dev/null 2>&1 || true
+mkdir -p /etc/fail2ban/jail.d
+cat > /etc/fail2ban/jail.d/aegisguard-ssh.conf << 'F2BEOF'
+[DEFAULT]
+banaction = iptables-multiport
+
+[sshd]
+enabled  = true
+port     = ssh
+filter   = sshd
+logpath  = /var/log/auth.log
+maxretry = 5
+bantime  = 3600
+findtime = 600
+F2BEOF
+systemctl enable fail2ban 2>/dev/null || true
+systemctl restart fail2ban 2>/dev/null || true
+log "fail2ban enabled (SSH brute-force protection)"
 
 # dnsmasq
 sed -i 's/#DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf 2>/dev/null || true
@@ -217,6 +244,7 @@ server=8.8.8.8
 server=1.1.1.1
 local=/aegis.local/
 domain=aegis.local
+except-interface=${WAN_IF}
 
 interface=${LAN_IF}
 dhcp-range=${LAN_IF},10.0.0.100,10.0.0.200,255.255.255.0,86400s
