@@ -95,7 +95,10 @@
         <div class="card-title">VLANs (802.1Q)</div>
         <div class="card-sub">{{ vlans|length }} VLAN(s) configured</div>
       </div>
-      <button class="btn btn-primary" onclick="openModal('add-vlan-modal')">+ Add VLAN</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary" onclick="applyVlans()">&#9889; Apply</button>
+        <button class="btn btn-primary" onclick="openModal('add-vlan-modal')">+ Add VLAN</button>
+      </div>
     </div>
     <div class="table-wrap">
       <table>
@@ -1396,6 +1399,14 @@ async function deleteVlan(id) {
     document.getElementById(`vlan-row-${id}`)?.remove();
     toast('VLAN deleted', 'success');
   } catch (e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function applyVlans() {
+  try {
+    toast('Applying VLANs...', 'info');
+    const r = await POST('/api/network/vlans/apply', {});
+    toast(r.message || 'VLANs applied', 'success');
+  } catch (e) { toast('Apply error: ' + e.message, 'error'); }
 }
 
 // ── DMZ ──

@@ -488,3 +488,149 @@ def get_dhcp_relay_status():
     ok, out, _ = run(["pgrep", "-a", "dhcrelay"])
     return {"running": ok, "process": out.strip() if ok else ""}
 
+
+# ─── VLANs (802.1Q) ───────────────────────────────────────────────────────────
+
+def apply_vlans():
+    """Create/update 802.1Q VLAN subinterfaces for all enabled VLANs in DB."""
+    if not IS_LINUX:
+        return False, "VLAN management is Linux only"
+
+    vlans = database.get_vlans()
+    wan_if = database.get_setting("wan_interface") or "eth0"
+    errors = []
+    applied = []
+
+    for v in vlans:
+        if not v.get("enabled"):
+            continue
+
+        parent = v["parent_interface"]
+        vid = v["vlan_id"]
+        iface = f"{parent}.{vid}"
+        ip = v.get("ip_address", "").strip()
+        netmask = v.get("netmask", "255.255.255.0")
+        mtu = v.get("mtu", 1500) or 1500
+        prefix = _netmask_to_prefix(netmask)
+
+        # Ensure parent interface is up
+        run(["ip", "link", "set", parent, "up"])
+
+        # Create VLAN subinterface if it doesn't exist
+        ok, _, _ = run(["ip", "link", "show", iface])
+        if not ok:
+            ok, _, err = run(["ip", "link", "add", "link", parent,
+                               "name", iface, "type", "vlan", "id", str(vid)])
+            if not ok:
+                errors.append(f"{iface}: {err}")
+                continue
+
+        run(["ip", "link", "set", iface, "mtu", str(mtu)])
+        run(["ip", "link", "set", iface, "up"])
+
+        if ip:
+            run(["ip", "addr", "flush", "dev", iface])
+            ok, _, err = run(["ip", "addr", "add", f"{ip}/{prefix}", "dev", iface])
+            if not ok:
+                errors.append(f"{iface} IP: {err}")
+
+        # iptables: allow FORWARD from VLAN to WAN
+        run(["iptables", "-C", "FORWARD", "-i", iface, "-o", wan_if, "-j", "ACCEPT"])
+        ok, _, _ = run(["iptables", "-C", "FORWARD", "-i", iface, "-o", wan_if, "-j", "ACCEPT"])
+        if not ok:
+            run(["iptables", "-I", "FORWARD", "1", "-i", iface, "-o", wan_if, "-j", "ACCEPT"])
+
+        # iptables: allow INPUT from VLAN (so firewall itself is reachable)
+        ok, _, _ = run(["iptables", "-C", "INPUT", "-i", iface, "-j", "ACCEPT"])
+        if not ok:
+            run(["iptables", "-I", "INPUT", "3", "-i", iface, "-j", "ACCEPT"])
+
+        applied.append(iface)
+
+    # Persist VLAN interfaces in netplan
+    _write_vlan_netplan(vlans, wan_if)
+
+    # Update dnsmasq for VLAN DHCP
+    _write_vlan_dnsmasq(vlans)
+
+    # Save iptables
+    run(["netfilter-persistent", "save"])
+
+    if errors:
+        return False, f"Applied {applied}, errors: {errors}"
+    return True, f"VLANs applied: {applied or 'none enabled'}"
+
+
+def _write_vlan_netplan(vlans, wan_if):
+    netplan_dir = "/etc/netplan"
+    if not os.path.isdir(netplan_dir):
+        return
+
+    lan_if = database.get_setting("lan_interface") or "eth1"
+    lines = ["network:", "  version: 2", "  ethernets:"]
+    lines += [f"    {wan_if}:", "      dhcp4: true"]
+    lines += [f"    {lan_if}:", "      dhcp4: false",
+              f"      addresses:", f"        - 10.0.0.1/24"]
+
+    # Collect unique parent interfaces used by VLANs
+    parents = set(v["parent_interface"] for v in vlans if v.get("enabled"))
+    for p in parents:
+        if p not in (wan_if, lan_if):
+            lines += [f"    {p}:", "      dhcp4: false"]
+
+    if vlans:
+        lines += ["  vlans:"]
+        for v in vlans:
+            if not v.get("enabled"):
+                continue
+            parent = v["parent_interface"]
+            vid = v["vlan_id"]
+            iface = f"{parent}.{vid}"
+            ip = v.get("ip_address", "").strip()
+            prefix = _netmask_to_prefix(v.get("netmask", "255.255.255.0"))
+            lines += [f"    {iface}:", f"      id: {vid}", f"      link: {parent}"]
+            if ip:
+                lines += ["      dhcp4: false", "      addresses:",
+                          f"        - {ip}/{prefix}"]
+            else:
+                lines += ["      dhcp4: false"]
+
+    content = "\n".join(lines) + "\n"
+    path = os.path.join(netplan_dir, "50-aegisguard.yaml")
+    with open(path, "w") as f:
+        f.write(content)
+    os.chmod(path, 0o600)
+    run(["netplan", "apply"])
+
+
+def _write_vlan_dnsmasq(vlans):
+    lan_if = database.get_setting("lan_interface") or "eth1"
+    lines = ["# AegisGuard managed - do not edit",
+             "no-resolv", "no-poll", "bogus-priv", "domain-needed",
+             "server=8.8.8.8", "server=1.1.1.1",
+             "local=/aegis.local/", "domain=aegis.local", "",
+             f"interface={lan_if}",
+             f"dhcp-range={lan_if},10.0.0.100,10.0.0.200,255.255.255.0,86400s",
+             f"dhcp-option={lan_if},3,10.0.0.1",
+             f"dhcp-option={lan_if},6,10.0.0.1"]
+
+    for v in vlans:
+        if not v.get("enabled") or not v.get("dhcp_enabled"):
+            continue
+        parent = v["parent_interface"]
+        vid = v["vlan_id"]
+        iface = f"{parent}.{vid}"
+        start = v.get("dhcp_start", "").strip()
+        end = v.get("dhcp_end", "").strip()
+        gw = v.get("ip_address", "").strip()
+        nm = v.get("netmask", "255.255.255.0")
+        if start and end and gw:
+            lines += ["", f"interface={iface}",
+                      f"dhcp-range={iface},{start},{end},{nm},86400s",
+                      f"dhcp-option={iface},3,{gw}",
+                      f"dhcp-option={iface},6,{gw}"]
+
+    with open("/etc/dnsmasq.d/aegisguard.conf", "w") as f:
+        f.write("\n".join(lines) + "\n")
+    run(["systemctl", "restart", "dnsmasq"])
+

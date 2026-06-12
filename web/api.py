@@ -492,6 +492,14 @@ async def api_update_vlan(vid: int, v: VlanCreate):
 async def api_del_vlan(vid: int):
     database.delete_vlan(vid); return {"status": "ok"}
 
+@app.post("/api/network/vlans/apply")
+async def api_apply_vlans():
+    from core import network_manager
+    ok, msg = network_manager.apply_vlans()
+    if not ok:
+        raise HTTPException(status_code=500, detail=msg)
+    return {"status": "ok", "message": msg}
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # REST API — DMZ
