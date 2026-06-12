@@ -155,6 +155,7 @@ cat > /etc/iptables/rules.v4 << IPRULES
 :AEGISGUARD_FORWARD - [0:0]
 :AEGISGUARD_INPUT - [0:0]
 :AEGISGUARD_OUTPUT - [0:0]
+-A INPUT -i ${WAN_IF} -p tcp --dport 22 -j DROP
 -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
 -A INPUT -i lo -j ACCEPT
 -A INPUT -i ${LAN_IF} -j ACCEPT
