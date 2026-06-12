@@ -145,24 +145,43 @@ net.ipv4.conf.all.rp_filter = 1
 SYSCTL
 sysctl -p /etc/sysctl.d/99-aegisguard.conf 2>/dev/null || true
 
-# NAT + Firewall
+# NAT + Firewall — atomic restore to avoid partial-state races with aegisguard service
 mkdir -p /etc/iptables
-iptables -t nat -A POSTROUTING -o "${WAN_IF}" -j MASQUERADE 2>/dev/null || true
-iptables -A FORWARD -i "${LAN_IF}" -o "${WAN_IF}" -j ACCEPT 2>/dev/null || true
-iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
-iptables -F INPUT 2>/dev/null || true
-iptables -A INPUT -i lo -j ACCEPT 2>/dev/null || true
-iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
-iptables -A INPUT -i "${LAN_IF}" -j ACCEPT 2>/dev/null || true
-iptables -A INPUT -i "${WAN_IF}" -p udp --dport 1194 -j ACCEPT 2>/dev/null || true
-iptables -A INPUT -i "${WAN_IF}" -p tcp --dport 1194 -j ACCEPT 2>/dev/null || true
-iptables -A INPUT -i "${WAN_IF}" -p udp --dport 51820 -j ACCEPT 2>/dev/null || true
-iptables -A INPUT -i "${WAN_IF}" -p udp --dport 500  -j ACCEPT 2>/dev/null || true
-iptables -A INPUT -i "${WAN_IF}" -p udp --dport 4500 -j ACCEPT 2>/dev/null || true
-iptables -A INPUT -i tun0 -j ACCEPT 2>/dev/null || true
-iptables -A INPUT -i "${WAN_IF}" -j DROP 2>/dev/null || true
-iptables -P INPUT DROP 2>/dev/null || true
-netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
+cat > /etc/iptables/rules.v4 << IPRULES
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+:AEGISGUARD_FORWARD - [0:0]
+:AEGISGUARD_INPUT - [0:0]
+:AEGISGUARD_OUTPUT - [0:0]
+-A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A INPUT -i lo -j ACCEPT
+-A INPUT -i ${LAN_IF} -j ACCEPT
+-A INPUT -i ${WAN_IF} -p udp --dport 1194 -j ACCEPT
+-A INPUT -i ${WAN_IF} -p tcp --dport 1194 -j ACCEPT
+-A INPUT -i ${WAN_IF} -p udp --dport 51820 -j ACCEPT
+-A INPUT -i ${WAN_IF} -p udp --dport 500 -j ACCEPT
+-A INPUT -i ${WAN_IF} -p udp --dport 4500 -j ACCEPT
+-A INPUT -i tun0 -j ACCEPT
+-A INPUT -i ${WAN_IF} -j DROP
+-A FORWARD -i ${LAN_IF} -o ${WAN_IF} -j ACCEPT
+-A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A AEGISGUARD_FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A AEGISGUARD_INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A AEGISGUARD_INPUT -i lo -j ACCEPT
+-A AEGISGUARD_OUTPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+COMMIT
+*nat
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+-A POSTROUTING -o ${WAN_IF} -j MASQUERADE
+COMMIT
+IPRULES
+iptables-restore < /etc/iptables/rules.v4
+netfilter-persistent save 2>/dev/null || true
 log "NAT + Firewall configured"
 
 # dnsmasq
