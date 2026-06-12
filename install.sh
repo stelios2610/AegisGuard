@@ -26,10 +26,24 @@ echo "=== AegisGuard Install: $(date) ==="
 
 # ── 1. Detect interfaces ──────────────────────────────────────────────────────
 info "[1/9] Detecting network interfaces..."
-IFACES=($(ls /sys/class/net | grep -v lo | sort))
-WAN_IF="${IFACES[0]:-eth0}"
-LAN_IF="${IFACES[1]:-eth1}"
-log "WAN=$WAN_IF  LAN=$LAN_IF"
+# WAN = the interface that already has an IP (assigned by upstream DHCP during OS install)
+WAN_IF=""
+for _if in $(ls /sys/class/net | grep -v lo | sort); do
+    if ip addr show "$_if" 2>/dev/null | grep -q "inet "; then
+        WAN_IF="$_if"
+        break
+    fi
+done
+WAN_IF="${WAN_IF:-eth0}"
+# LAN = all other interfaces (support 1 or 2 LAN ports)
+LAN_IFS=()
+for _if in $(ls /sys/class/net | grep -v lo | sort); do
+    [ "$_if" = "$WAN_IF" ] && continue
+    LAN_IFS+=("$_if")
+done
+LAN_IF="${LAN_IFS[0]:-eth1}"
+LAN2_IF="${LAN_IFS[1]:-}"
+log "WAN=$WAN_IF  LAN=$LAN_IF  LAN2=${LAN2_IF:-none}"
 
 # ── 2. Install packages ───────────────────────────────────────────────────────
 info "[2/9] Installing packages (this takes a few minutes)..."
@@ -140,6 +154,7 @@ iptables -F INPUT 2>/dev/null || true
 iptables -A INPUT -i lo -j ACCEPT 2>/dev/null || true
 iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
 iptables -A INPUT -i "${LAN_IF}" -j ACCEPT 2>/dev/null || true
+iptables -A INPUT -i "${WAN_IF}" -p tcp --dport 22   -j ACCEPT 2>/dev/null || true
 iptables -A INPUT -i "${WAN_IF}" -p udp --dport 1194 -j ACCEPT 2>/dev/null || true
 iptables -A INPUT -i "${WAN_IF}" -p tcp --dport 1194 -j ACCEPT 2>/dev/null || true
 iptables -A INPUT -i "${WAN_IF}" -p udp --dport 51820 -j ACCEPT 2>/dev/null || true
