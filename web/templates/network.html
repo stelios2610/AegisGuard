@@ -122,7 +122,7 @@
             <td><span class="badge badge-{{ 'allow' if v.enabled else 'disabled' }}">{{ 'Active' if v.enabled else 'Disabled' }}</span></td>
             <td>
               <div class="btn-group">
-                <button class="btn btn-secondary btn-sm" onclick="editVlan({{ v|tojson }})">Edit</button>
+                <button class="btn btn-secondary btn-sm" onclick="editVlanById({{ v.id }})">Edit</button>
                 <button class="btn btn-danger btn-sm" onclick="deleteVlan({{ v.id }})">✕</button>
               </div>
             </td>
@@ -1234,6 +1234,7 @@
 {% block extra_js %}
 <script>
 const TABS = ['interfaces','vlans','dmz','routes','dhcp','dns','nat','qos','multiwan'];
+const VLAN_DATA = {{ vlans|tojson }};
 
 function switchTab(name) {
   TABS.forEach(t => {
@@ -1344,6 +1345,11 @@ async function applyInterfaces() {
 }
 
 // ── VLANs ──
+function editVlanById(id) {
+  const v = VLAN_DATA.find(x => x.id === id);
+  if (v) editVlan(v);
+}
+
 function editVlan(v) {
   document.getElementById('vlan-db-id').value = v.id;
   document.getElementById('vlan-id').value = v.vlan_id;
