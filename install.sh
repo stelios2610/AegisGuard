@@ -185,6 +185,20 @@ iptables-restore < /etc/iptables/rules.v4
 netfilter-persistent save 2>/dev/null || true
 log "NAT + Firewall configured"
 
+# SSH hardening — listen only on LAN, not WAN
+# Ubuntu 26.04 uses ssh.socket (systemd socket activation) which binds 0.0.0.0:22
+# regardless of sshd_config — must disable it and let sshd manage the socket itself
+systemctl stop ssh.socket 2>/dev/null || true
+systemctl disable ssh.socket 2>/dev/null || true
+# Remove any override from cloud-init that forces 0.0.0.0
+sed -i '/^ListenAddress/d' /etc/ssh/sshd_config.d/50-cloud-init.conf 2>/dev/null || true
+# Set explicit listen addresses — LAN only, never WAN
+sed -i '/^ListenAddress/d' /etc/ssh/sshd_config
+echo "ListenAddress 127.0.0.1" >> /etc/ssh/sshd_config
+echo "ListenAddress 10.0.0.1" >> /etc/ssh/sshd_config
+systemctl restart ssh
+log "SSH restricted to LAN interface only"
+
 # dnsmasq
 sed -i 's/#DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf 2>/dev/null || true
 sed -i 's/DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf 2>/dev/null || true
