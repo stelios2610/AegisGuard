@@ -155,6 +155,48 @@ def _write_hosts_filter(domains):
     return _write_hosts(clean + "".join(block_lines))
 
 
+# ── DNS redirect (force all LAN DNS through dnsmasq) ─────────────────────────
+
+def _get_lan_interfaces():
+    """Return list of LAN interface names from DHCP configs + enabled VLANs."""
+    ifaces = []
+    for cfg in database.get_dhcp_configs():
+        if cfg.get("enabled") and cfg.get("interface"):
+            ifaces.append(cfg["interface"])
+    for v in database.get_vlans():
+        if v.get("enabled"):
+            ifaces.append(f"{v['parent_interface']}.{v['vlan_id']}")
+    return list(dict.fromkeys(ifaces))  # deduplicate, preserve order
+
+
+def _apply_dns_redirect():
+    """Force all DNS queries from LAN clients through local dnsmasq."""
+    for iface in _get_lan_interfaces():
+        for proto in ("udp", "tcp"):
+            ok, _, _ = run(["iptables", "-t", "nat", "-C", "PREROUTING",
+                            "-i", iface, "-p", proto, "--dport", "53", "-j", "REDIRECT", "--to-port", "53"])
+            if not ok:
+                run(["iptables", "-t", "nat", "-A", "PREROUTING",
+                     "-i", iface, "-p", proto, "--dport", "53", "-j", "REDIRECT", "--to-port", "53"])
+        # Block DNS-over-TLS (port 853) so clients can't bypass via DoT
+        for proto in ("tcp", "udp"):
+            ok, _, _ = run(["iptables", "-C", "FORWARD",
+                            "-i", iface, "-p", proto, "--dport", "853", "-j", "DROP"])
+            if not ok:
+                run(["iptables", "-A", "FORWARD",
+                     "-i", iface, "-p", proto, "--dport", "853", "-j", "DROP"])
+
+
+def _remove_dns_redirect():
+    for iface in _get_lan_interfaces():
+        for proto in ("udp", "tcp"):
+            run(["iptables", "-t", "nat", "-D", "PREROUTING",
+                 "-i", iface, "-p", proto, "--dport", "53", "-j", "REDIRECT", "--to-port", "53"])
+        for proto in ("tcp", "udp"):
+            run(["iptables", "-D", "FORWARD",
+                 "-i", iface, "-p", proto, "--dport", "853", "-j", "DROP"])
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def apply_filters():
@@ -166,10 +208,9 @@ def apply_filters():
 
     if IS_LINUX:
         ok, msg = _write_dnsmasq_filter(domains)
-        # Also write hosts file (serves local resolution + dnsmasq)
         _write_hosts_filter(domains)
-        # Restart dnsmasq to pick up new config
         run(["systemctl", "restart", "dnsmasq"])
+        _apply_dns_redirect()
         database.add_log("INFO", details=f"Web filter applied: {len(domains)} domains blocked via dnsmasq")
         return ok, msg
 
@@ -183,6 +224,7 @@ def remove_filters():
     """Remove web filter."""
     if IS_LINUX:
         _remove_dnsmasq_filter()
+        _remove_dns_redirect()
         run(["systemctl", "restart", "dnsmasq"])
     current = _read_hosts()
     if current:
