@@ -1015,6 +1015,23 @@ async def api_set_geo(request: Request):
 async def api_geo_lookup(request: Request):
     data = await request.json(); return reputation.lookup_ip(data.get("ip",""))
 
+@app.post("/api/security/geo/apply")
+async def api_geoblock_apply():
+    from core import geoblock
+    ok, msg = geoblock.apply_geoblock()
+    return {"status": "ok" if ok else "error", "message": msg}
+
+@app.post("/api/security/geo/remove")
+async def api_geoblock_remove():
+    from core import geoblock
+    ok, msg = geoblock.remove_geoblock()
+    return {"status": "ok" if ok else "error", "message": msg}
+
+@app.get("/api/security/geo/status")
+async def api_geoblock_status():
+    from core import geoblock
+    return geoblock.get_status()
+
 @app.get("/api/security/av")
 async def api_av_stats():
     return gateway_av.get_stats()
