@@ -37,20 +37,26 @@ def _get_wan_iface():
     global WAN_IFACE
     if WAN_IFACE:
         return WAN_IFACE
+    # Primary: read from default route (authoritative — always current)
+    r = subprocess.run("ip route show default", shell=True, capture_output=True, text=True)
+    tokens = r.stdout.split()
+    if "dev" in tokens:
+        idx = tokens.index("dev")
+        if idx + 1 < len(tokens):
+            WAN_IFACE = tokens[idx + 1]
+            return WAN_IFACE
+    # Fallback: DB setting
     try:
         ifaces = database.get_interfaces()
         for i in ifaces:
             if i.get("type") == "WAN" or i.get("role") == "WAN":
-                WAN_IFACE = i.get("name", "ens1")
-                return WAN_IFACE
+                name = i.get("name", "")
+                # Only use if interface actually exists
+                if name and os.path.exists("/sys/class/net/" + name):
+                    WAN_IFACE = name
+                    return WAN_IFACE
     except Exception:
         pass
-    # Fallback: find WAN via default route
-    r = subprocess.run("ip route show default", shell=True, capture_output=True, text=True)
-    for part in r.stdout.split():
-        if part not in ("default", "via", "dev", "proto", "src", "metric") and "." not in part and part != "dhcp":
-            WAN_IFACE = part
-            return WAN_IFACE
     WAN_IFACE = "ens1"
     return WAN_IFACE
 
