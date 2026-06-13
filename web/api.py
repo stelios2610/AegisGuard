@@ -761,6 +761,15 @@ async def api_apply_wf():
 async def api_remove_wf():
     ok, msg = web_filter.remove_filters(); return {"status":"ok" if ok else "error","message":msg}
 
+class CategoryToggle(BaseModel):
+    name: str; enabled: int
+
+@app.post("/api/webfilter/category")
+async def api_toggle_category(c: CategoryToggle):
+    database.update_web_category(c.name, c.enabled)
+    ok, msg = web_filter.apply_filters(); web_filter.flush_dns()
+    return {"status":"ok" if ok else "error","message":msg}
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # REST API — VPN

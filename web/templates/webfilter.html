@@ -229,11 +229,16 @@ function applyActionFilter() {
 
 async function toggleCategory(checkbox) {
   const catName = checkbox.dataset.cat;
-  const enabled = checkbox.checked;
+  const enabled = checkbox.checked ? 1 : 0;
+  checkbox.disabled = true;
   try {
-    // Add or remove all filters for the category by reloading — category toggle handled server-side
-    toast(`Category "${catName}" ${enabled ? 'enabled' : 'disabled'} — apply hosts to take effect`, 'info');
-  } catch (e) { toast('Error toggling category', 'error'); }
+    const r = await POST('/api/webfilter/category', { name: catName, enabled });
+    const label = checkbox.closest('label').querySelector('.text-muted');
+    if (label) label.textContent = enabled ? 'Enabled' : 'Disabled';
+    if (r.status === 'ok') toast(`"${catName}" ${enabled ? 'enabled' : 'disabled'} — filter applied`, enabled ? 'success' : 'info');
+    else toast('Apply error: ' + (r.message || 'unknown'), 'error');
+  } catch (e) { toast('Error toggling category', 'error'); checkbox.checked = !checkbox.checked; }
+  checkbox.disabled = false;
 }
 
 document.getElementById('add-filter-modal').addEventListener('click', e => {

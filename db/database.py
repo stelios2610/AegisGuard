@@ -1241,6 +1241,13 @@ def get_web_categories():
     return [dict(r) for r in rows]
 
 
+def update_web_category(name, enabled):
+    conn = get_connection()
+    conn.execute("UPDATE web_categories SET enabled = ? WHERE name = ?", (int(enabled), name))
+    conn.commit()
+    conn.close()
+
+
 # ─── VPN Profiles ─────────────────────────────────────────────────────────────
 
 def get_vpn_profiles():
