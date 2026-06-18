@@ -239,7 +239,7 @@ def _install_persistence():
     """Create a systemd service that restores ipset on boot."""
     service = """\
 [Unit]
-Description=AegisGuard GeoBlock ipset restore
+Description=FGUARD UTC GeoBlock ipset restore
 Before=iptables.service netfilter-persistent.service
 DefaultDependencies=no
 

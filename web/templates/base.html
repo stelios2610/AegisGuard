@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}{% endblock %} — AegisGuard</title>
+  <title>{% block title %}{% endblock %} — FGUARD UTC</title>
   <link rel="stylesheet" href="/static/css/aegis.css">
   {% block extra_head %}{% endblock %}
 </head>
@@ -15,7 +15,7 @@
   <div class="sidebar-logo">
     <span class="shield">🛡</span>
     <div>
-      <div class="brand">AegisGuard</div>
+      <div class="brand">FGUARD UTC</div>
       <div style="font-size:9px;color:#555;letter-spacing:0.5px">NETWORK SECURITY</div>
     </div>
   </div>
@@ -213,7 +213,7 @@
     {% if not is_root %}
     <div style="color:var(--warning);margin-top:3px;font-size:10px">⚠ Not Administrator</div>
     {% endif %}
-    <div style="color:#444;margin-top:5px;font-size:10px">AegisGuard v1.0.0</div>
+    <div style="color:#444;margin-top:5px;font-size:10px">FGUARD UTC v1.0.0</div>
     <form method="POST" action="/logout" style="margin-top:8px">
       <button type="submit" style="display:block;width:100%;background:none;border:1px solid #30363d;border-radius:4px;color:#8b949e;font-size:11px;padding:4px 8px;text-align:center;cursor:pointer;transition:all 0.15s"
               onmouseover="this.style.color='#e74c3c';this.style.borderColor='#e74c3c'"
@@ -274,5 +274,28 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 
 {% block extra_js %}{% endblock %}
+
+<script>
+// Idle session timeout — 10 minutes of no activity → auto logout
+(function() {
+  var IDLE_MS = 10 * 60 * 1000;
+  var timer;
+  function reset() {
+    clearTimeout(timer);
+    timer = setTimeout(function() {
+      // Show brief notice then submit logout
+      document.body.style.opacity = '0.4';
+      var f = document.createElement('form');
+      f.method = 'POST'; f.action = '/logout';
+      document.body.appendChild(f);
+      f.submit();
+    }, IDLE_MS);
+  }
+  ['mousemove','keydown','click','scroll','touchstart'].forEach(function(ev) {
+    document.addEventListener(ev, reset, {passive: true});
+  });
+  reset();
+})();
+</script>
 </body>
 </html>

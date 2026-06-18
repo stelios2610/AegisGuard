@@ -1,7 +1,7 @@
 """High Availability Manager — VRRP via keepalived + config sync.
 
 Architecture:
-  - Two AegisGuard nodes: MASTER (priority 100) and BACKUP (priority 90)
+  - Two FGUARD UTC nodes: MASTER (priority 100) and BACKUP (priority 90)
   - keepalived manages VRRP: Virtual IP floats to active MASTER
   - On failover, BACKUP becomes MASTER and takes the Virtual IP
   - Config sync: MASTER periodically rsyncs its config/DB to BACKUP
@@ -45,7 +45,7 @@ def write_keepalived_config():
     os.makedirs("/etc/keepalived", exist_ok=True)
     _write_notify_script()
 
-    conf = f"""# AegisGuard HA — keepalived config
+    conf = f"""# FGUARD UTC HA — keepalived config
 # Generated: {datetime.now().isoformat()}
 # Role: {role}
 
@@ -99,7 +99,7 @@ vrrp_instance AEGIS_HA {{
 def _write_notify_script():
     """Write the VRRP state-change notification script."""
     script = """#!/bin/bash
-# AegisGuard VRRP notify script
+# FGUARD UTC VRRP notify script
 # Called by keepalived on state change
 # Args: $1=instance $2=state $3=priority
 
@@ -270,7 +270,7 @@ def sync_now():
 
 
 def _do_sync(peer_ip):
-    """Rsync AegisGuard config and database to peer."""
+    """Rsync FGUARD UTC config and database to peer."""
     if not IS_LINUX:
         return False, "Sync requires Linux"
 

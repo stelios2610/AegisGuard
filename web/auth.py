@@ -1,4 +1,4 @@
-"""AegisGuard session-based authentication (no extra dependencies)."""
+"""FGUARD UTC session-based authentication (no extra dependencies)."""
 import secrets
 import hashlib
 import hmac
@@ -17,7 +17,7 @@ except ImportError:
 # In-memory session store: {token: {"user": str, "expires": datetime}}
 _sessions: dict = {}
 
-COOKIE_NAME = "aegisguard_session"
+COOKIE_NAME = "fguard_session"
 SESSION_HOURS = 8
 
 # Routes that don't require login

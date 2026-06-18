@@ -1,6 +1,6 @@
 [Unit]
-Description=AegisGuard Network Security Suite
-Documentation=https://github.com/aegisguard
+Description=FGUARD UTC Network Security Suite
+Documentation=https://github.com/stelios2610/AegisGuard
 After=network.target network-online.target
 Wants=network-online.target
 

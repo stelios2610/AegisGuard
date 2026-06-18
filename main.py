@@ -1,4 +1,4 @@
-"""AegisGuard - Network Security Suite
+"""FGUARD UTC - Network Security Suite
 Entry point. Run as Administrator for full functionality.
 """
 import sys
@@ -32,9 +32,9 @@ def check_admin():
 
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName("AegisGuard")
+    app.setApplicationName("FGUARD UTC")
     app.setApplicationVersion("1.0.0")
-    app.setOrganizationName("AegisGuard Security")
+    app.setOrganizationName("FGUARD UTC Security")
 
     font = QFont("Segoe UI", 10)
     app.setFont(font)
@@ -64,7 +64,7 @@ def main():
     if not check_admin():
         QMessageBox.warning(
             None, "Administrator Required",
-            "AegisGuard is running without Administrator privileges.\n\n"
+            "FGUARD UTC is running without Administrator privileges.\n\n"
             "Some features will be limited:\n"
             "  - Windows Firewall rule sync\n"
             "  - Hosts file web filtering\n"

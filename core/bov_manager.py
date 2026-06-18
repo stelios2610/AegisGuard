@@ -188,7 +188,7 @@ def get_ipsec_status():
 
 def _write_wireguard_site_config(tunnel):
     """Generate WireGuard .conf for site-to-site tunnel."""
-    conf = f"""# AegisGuard BOV WireGuard - {tunnel['name']}
+    conf = f"""# FGUARD UTC BOV WireGuard - {tunnel['name']}
 [Interface]
 PrivateKey = {tunnel.get('wg_private_key','')}
 ListenPort = {tunnel.get('wg_port',51820)}
@@ -249,7 +249,7 @@ def _write_ssl_site_config(tunnel, mode="server"):
     def _block(tag, content):
         return f"<{tag}>\n{content.strip()}\n</{tag}>\n" if content else ""
 
-    conf = f"""# AegisGuard BOV SSL - {tunnel['name']} ({mode})
+    conf = f"""# FGUARD UTC BOV SSL - {tunnel['name']} ({mode})
 # Generated: {datetime.now().isoformat()}
 
 {'dev tun' if is_server else 'dev tun'}
@@ -357,7 +357,7 @@ def export_peer_config(tunnel):
 
     if t == "WireGuard":
         # Generate reverse config for remote peer
-        conf = f"""# AegisGuard BOV - Remote peer config for '{name}'
+        conf = f"""# FGUARD UTC BOV - Remote peer config for '{name}'
 # Paste this on the REMOTE WireGuard device
 
 [Interface]

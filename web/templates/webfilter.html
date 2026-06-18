@@ -7,7 +7,7 @@
 
 {% if not is_root %}
 <div class="alert alert-warning">
-  ⚠ AegisGuard is not running as administrator. Applying host-based web filters requires elevated privileges.
+  ⚠ FGUARD UTC is not running as administrator. Applying host-based web filters requires elevated privileges.
 </div>
 {% endif %}
 
@@ -211,7 +211,7 @@ async function applyHosts() {
 }
 
 async function removeHosts() {
-  if (!confirm2('Remove AegisGuard entries from the hosts file?')) return;
+  if (!confirm2('Remove FGUARD UTC entries from the hosts file?')) return;
   try {
     const r = await POST('/api/webfilter/remove');
     if (r.status === 'ok') toast('Hosts entries removed', 'success');

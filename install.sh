@@ -1,5 +1,5 @@
 #!/bin/bash
-# AegisGuard Network Security - One-line installer
+# FGUARD UTC Network Security - One-line installer
 # Usage: curl -fsSL https://raw.githubusercontent.com/stelios2610/AegisGuard/main/install.sh | sudo bash
 # Requires: Ubuntu 22.04/24.04/26.04, two network interfaces (WAN + LAN)
 
@@ -15,14 +15,14 @@ err()  { echo -e "${R}[✗]${NC} $*"; exit 1; }
 
 echo ""
 echo -e "${C}  ╔══════════════════════════════════════════════╗${NC}"
-echo -e "${C}  ║     AegisGuard Network Security v1.0         ║${NC}"
+echo -e "${C}  ║     FGUARD UTC Network Security v1.0         ║${NC}"
 echo -e "${C}  ║     One-line installer                       ║${NC}"
 echo -e "${C}  ╚══════════════════════════════════════════════╝${NC}"
 echo ""
 
 LOGFILE="/var/log/aegisguard-install.log"
 exec > >(tee -a "$LOGFILE") 2>&1
-echo "=== AegisGuard Install: $(date) ==="
+echo "=== FGUARD UTC Install: $(date) ==="
 
 # ── 1. Detect interfaces ──────────────────────────────────────────────────────
 info "[1/9] Detecting network interfaces..."
@@ -190,21 +190,18 @@ iptables-restore < /etc/iptables/rules.v4
 netfilter-persistent save 2>/dev/null || true
 log "NAT + Firewall configured"
 
-# SSH hardening — listen only on LAN, not WAN
-# Ubuntu 26.04 uses ssh.socket (systemd socket activation) which binds 0.0.0.0:22
-# regardless of sshd_config — must disable it and let sshd manage the socket itself
+# SSH hardening — block WAN via iptables (already above), listen on all interfaces
+# so SSH always works on LAN regardless of IP or interface name after reboot
+# Ubuntu 26.04 uses ssh.socket (systemd socket activation) — disable it
 systemctl stop ssh.socket 2>/dev/null || true
 systemctl disable ssh.socket 2>/dev/null || true
-# Remove any override from cloud-init that forces 0.0.0.0
+# Remove any ListenAddress restrictions — let sshd bind 0.0.0.0 (iptables handles WAN block)
 sed -i '/^ListenAddress/d' /etc/ssh/sshd_config.d/50-cloud-init.conf 2>/dev/null || true
-# Set explicit listen addresses — LAN only, never WAN
 sed -i '/^ListenAddress/d' /etc/ssh/sshd_config
-echo "ListenAddress 127.0.0.1" >> /etc/ssh/sshd_config
-echo "ListenAddress 10.0.0.1" >> /etc/ssh/sshd_config
-# Disable root login and ensure sensible defaults
+# Disable root login
 sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
 systemctl restart ssh
-log "SSH restricted to LAN interface only (PermitRootLogin no)"
+log "SSH hardened: WAN blocked via iptables, LAN always accessible (PermitRootLogin no)"
 
 # fail2ban — brute-force protection for SSH
 DEBIAN_FRONTEND=noninteractive apt-get install -y fail2ban > /dev/null 2>&1 || true
@@ -288,7 +285,7 @@ sleep 3
 cat > /etc/motd << 'MOTD'
 
   ╔══════════════════════════════════════════════════════╗
-  ║           AegisGuard Network Security v1.0           ║
+  ║           FGUARD UTC Network Security v1.0           ║
   ║                                                      ║
   ║  Web UI:  https://10.0.0.1:8080  (LAN only)          ║
   ║  SSH:     ssh admin@10.0.0.1     (LAN only)          ║
@@ -300,11 +297,11 @@ cat > /etc/motd << 'MOTD'
 MOTD
 
 STATUS=$(systemctl is-active aegisguard)
-log "AegisGuard: $STATUS"
+log "FGUARD UTC: $STATUS"
 
 echo ""
 echo -e "${G}  ╔══════════════════════════════════════════════╗${NC}"
-echo -e "${G}  ║   AegisGuard installed successfully!         ║${NC}"
+echo -e "${G}  ║   FGUARD UTC installed successfully!         ║${NC}"
 echo -e "${G}  ║                                              ║${NC}"
 echo -e "${G}  ║   Web UI: https://10.0.0.1:8080             ║${NC}"
 echo -e "${G}  ║   Login:  admin / admin                      ║${NC}"

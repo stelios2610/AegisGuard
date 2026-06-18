@@ -84,7 +84,7 @@ def write_server_config():
     def _block(tag, content):
         return f"<{tag}>\n{content.strip()}\n</{tag}>\n" if content else ""
 
-    conf = f"""# AegisGuard SSL VPN Server
+    conf = f"""# FGUARD UTC SSL VPN Server
 # Generated: {datetime.now().isoformat()}
 
 port {port}
@@ -143,7 +143,7 @@ verb 3
 def write_auth_script():
     """Write the OpenVPN user auth script."""
     script = """#!/bin/bash
-# AegisGuard SSL VPN auth script
+# FGUARD UTC SSL VPN auth script
 # Called by OpenVPN via-file: $1 = temp file with username/password
 
 /usr/bin/python3 /etc/aegisguard/vpn_auth_check.py "$1"
@@ -339,7 +339,7 @@ def generate_user_config(vpn_user, server_ip="auto"):
     def _block(tag, content):
         return f"<{tag}>\n{content.strip()}\n</{tag}>\n" if content else ""
 
-    conf = f"""# AegisGuard SSL VPN - Client Config
+    conf = f"""# FGUARD UTC SSL VPN - Client Config
 # User: {vpn_user['username']}
 # Server: {server_ip}:{port}
 # Generated: {datetime.now().isoformat()}

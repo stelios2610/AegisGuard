@@ -308,7 +308,7 @@ def setup_router_mode(wan_iface, lan_iface):
 
 
 def flush_all_rules():
-    """Remove all AegisGuard rules from the system."""
+    """Remove all FGUARD UTC rules from the system."""
     if IS_LINUX:
         for chain in (f"{CHAIN_PREFIX}_INPUT", f"{CHAIN_PREFIX}_OUTPUT", f"{CHAIN_PREFIX}_FORWARD"):
             _ipt(["-F", chain])
