@@ -45,6 +45,15 @@ LAN_IF="${LAN_IFS[0]:-eth1}"
 LAN2_IF="${LAN_IFS[1]:-}"
 log "WAN=$WAN_IF  LAN=$LAN_IF  LAN2=${LAN2_IF:-none}"
 
+# Lock interface names to MAC addresses — prevents name changes after power outage/reboot
+WAN_MAC=$(cat /sys/class/net/${WAN_IF}/address 2>/dev/null || true)
+LAN_MAC=$(cat /sys/class/net/${LAN_IF}/address 2>/dev/null || true)
+log "WAN MAC=$WAN_MAC  LAN MAC=$LAN_MAC"
+
+# Ensure 8021q VLAN module loads on boot
+grep -q 8021q /etc/modules 2>/dev/null || echo 8021q >> /etc/modules
+modprobe 8021q 2>/dev/null || true
+
 # ── 2. Install packages ───────────────────────────────────────────────────────
 info "[2/9] Installing packages (this takes a few minutes)..."
 export DEBIAN_FRONTEND=noninteractive
@@ -124,8 +133,14 @@ network:
   version: 2
   ethernets:
     ${WAN_IF}:
+      match:
+        macaddress: ${WAN_MAC}
+      set-name: ${WAN_IF}
       dhcp4: true
     ${LAN_IF}:
+      match:
+        macaddress: ${LAN_MAC}
+      set-name: ${LAN_IF}
       dhcp4: false
       addresses:
         - 10.0.0.1/24
