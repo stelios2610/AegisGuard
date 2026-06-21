@@ -177,6 +177,19 @@ def disconnect_ipsec_tunnel(tunnel):
     return ok, out if ok else err
 
 
+def delete_ipsec_tunnel(tunnel):
+    """Terminate SA, delete swanctl conf file, reload swanctl — no orphaned config."""
+    name = tunnel["name"].replace(" ", "_")
+    run(["swanctl", "--terminate", "--ike", name], timeout=15)
+    conf_path = os.path.join(SWANCTL_CONF_DIR, f"aegisguard-{name}.conf")
+    if os.path.isfile(conf_path):
+        os.remove(conf_path)
+    run(["swanctl", "--load-all"])
+    database.update_bov_tunnel(tunnel["id"], status="Down")
+    database.add_log("INFO", details=f"BOV IPSec DELETED: {tunnel['name']}")
+    return True, "Deleted"
+
+
 def get_ipsec_status():
     ok, out, _ = run(["swanctl", "--list-sas"])
     return out if ok else "swanctl not available"
@@ -223,6 +236,7 @@ def apply_wireguard_tunnel(tunnel):
         run(["wg-quick", "down", conf_path])
         ok, out, err = run(["wg-quick", "up", conf_path], timeout=15)
         if ok:
+            run(["systemctl", "enable", f"wg-quick@{iface_name}"])
             database.update_bov_tunnel(tunnel["id"], status="Up", last_up=datetime.now().isoformat())
             database.add_log("INFO", details=f"BOV WireGuard UP: {tunnel['name']}")
         return ok, out if ok else err
@@ -233,9 +247,24 @@ def disconnect_wireguard_tunnel(tunnel):
     iface_name = f"wg-bov-{tunnel['id']}"
     conf_path = os.path.join(WG_CONF_DIR, f"{iface_name}.conf")
     if IS_LINUX and os.path.isfile(conf_path):
-        ok, out, err = run(["wg-quick", "down", conf_path])
+        run(["wg-quick", "down", conf_path])
     database.update_bov_tunnel(tunnel["id"], status="Down")
     return True, "Disconnected"
+
+
+def delete_wireguard_tunnel(tunnel):
+    """Bring down WireGuard, disable systemd unit, delete conf file."""
+    iface_name = f"wg-bov-{tunnel['id']}"
+    conf_path = os.path.join(WG_CONF_DIR, f"{iface_name}.conf")
+    if IS_LINUX:
+        if os.path.isfile(conf_path):
+            run(["wg-quick", "down", conf_path])
+        run(["systemctl", "disable", f"wg-quick@{iface_name}"])
+    if os.path.isfile(conf_path):
+        os.remove(conf_path)
+    database.update_bov_tunnel(tunnel["id"], status="Down")
+    database.add_log("INFO", details=f"BOV WireGuard DELETED: {tunnel['name']}")
+    return True, "Deleted"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -339,6 +368,56 @@ def disconnect_tunnel(tunnel):
         database.update_bov_tunnel(tunnel["id"], status="Down")
         return True, "Disconnected"
     return False, f"Protocol {t} not supported"
+
+
+def delete_tunnel(tunnel):
+    """Called on UI delete: disconnect AND remove all config files from disk."""
+    t = tunnel["type"]
+    if t in ("IKEv2", "IKEv1", "L2TP-IPSec"):
+        return delete_ipsec_tunnel(tunnel)
+    elif t == "WireGuard":
+        return delete_wireguard_tunnel(tunnel)
+    elif t == "SSL-OpenVPN":
+        proc = _tunnel_processes.pop(tunnel["id"], None)
+        if proc and proc.poll() is None:
+            proc.terminate()
+        conf_path = os.path.join(BOV_CONF_DIR, f"bov-ssl-{tunnel['id']}.conf")
+        if os.path.isfile(conf_path):
+            os.remove(conf_path)
+        database.update_bov_tunnel(tunnel["id"], status="Down")
+        return True, "Deleted"
+    return False, f"Protocol {t} not supported"
+
+
+def restore_tunnels_on_boot():
+    """Called at app startup: re-apply enabled BOV tunnels after power outage / restart."""
+    if not IS_LINUX:
+        return
+
+    tunnels = database.get_bov_tunnels()
+
+    # IPSec: ensure conf files exist on disk — StrongSwan auto-connects via start_action=start
+    ipsec_tunnels = [t for t in tunnels
+                     if t["type"] in ("IKEv2", "IKEv1", "L2TP-IPSec") and t.get("enabled", 1)]
+    if ipsec_tunnels:
+        os.makedirs(SWANCTL_CONF_DIR, exist_ok=True)
+        wrote = False
+        for t in ipsec_tunnels:
+            name = t["name"].replace(" ", "_")
+            conf_path = os.path.join(SWANCTL_CONF_DIR, f"aegisguard-{name}.conf")
+            if not os.path.isfile(conf_path):
+                with open(conf_path, "w") as f:
+                    f.write(_write_swanctl_conf(t))
+                os.chmod(conf_path, 0o600)
+                wrote = True
+        if wrote:
+            run(["swanctl", "--load-all"])
+
+    # WireGuard BOV: bring up + enable systemd so they survive future reboots
+    wg_tunnels = [t for t in tunnels
+                  if t["type"] == "WireGuard" and t.get("enabled", 1)]
+    for t in wg_tunnels:
+        apply_wireguard_tunnel(t)
 
 
 def get_tunnel_status(tunnel_id):

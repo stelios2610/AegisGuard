@@ -47,6 +47,13 @@ if _IS_LINUX:
     except Exception:
         pass
 
+# Re-apply BOV tunnels after power outage / restart
+if _IS_LINUX:
+    try:
+        bov_manager.restore_tunnels_on_boot()
+    except Exception:
+        pass
+
 # ── Background log pruning (every hour, 2 GB limit) ──────────────────────────
 import threading as _threading
 
@@ -1647,7 +1654,7 @@ async def api_add_bov(t: BOVCreate):
 async def api_del_bov(tid: int):
     tunnel = next((t for t in database.get_bov_tunnels() if t["id"] == tid), None)
     if tunnel:
-        bov_manager.disconnect_tunnel(tunnel)
+        bov_manager.delete_tunnel(tunnel)
     database.delete_bov_tunnel(tid)
     return {"status": "ok"}
 
