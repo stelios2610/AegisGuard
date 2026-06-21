@@ -155,6 +155,11 @@ def write_dhcp_config():
     configs = database.get_dhcp_configs()
     leases = database.get_dhcp_leases()
     iface_ips = {i["name"]: i.get("ip_address", "") for i in database.get_interfaces()}
+    # Also index VLAN interfaces (e.g. eth1.10) so gateway lookup works without fallback
+    for v in database.get_vlans():
+        vkey = f"{v['parent_interface']}.{v['vlan_id']}"
+        if v.get("ip_address"):
+            iface_ips.setdefault(vkey, v["ip_address"])
 
     lines = [
         "# AegisGuard DHCP config (dnsmasq)",
