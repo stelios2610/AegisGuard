@@ -341,16 +341,40 @@ def refresh_server_conf():
 
 
 def get_connected_clients():
-    """Read OpenVPN status log for connected clients."""
-    status_file = "/var/log/aegisguard-ssl-vpn-status.log"
+    """Read OpenVPN status log for connected clients.
+    Supports both status-version 2 (systemd service) and version 1 (direct start)."""
+    candidates = [
+        "/run/openvpn-server/status-server.log",  # openvpn-server@server.service
+        "/var/log/aegisguard-ssl-vpn-status.log",  # FGUARD direct start
+    ]
+    status_file = next((p for p in candidates if os.path.isfile(p)), None)
     clients = []
-    if not os.path.isfile(status_file):
+    if not status_file:
         return clients
     try:
         with open(status_file) as f:
+            content = f.read()
+
+        # status-version 2: rows start with CLIENT_LIST,
+        if "CLIENT_LIST," in content:
+            for line in content.splitlines():
+                if not line.startswith("CLIENT_LIST,"):
+                    continue
+                parts = line.split(",")
+                # HEADER,CLIENT_LIST,... rows have "HEADER" prefix — skip
+                if len(parts) < 8:
+                    continue
+                clients.append({
+                    "username": parts[9] if len(parts) > 9 and parts[9] else parts[1],
+                    "real_ip": parts[2],
+                    "bytes_recv": parts[5],
+                    "bytes_sent": parts[6],
+                    "connected_since": parts[7],
+                })
+        else:
+            # status-version 1 (legacy)
             in_client_list = False
-            for line in f:
-                line = line.strip()
+            for line in content.splitlines():
                 if "Common Name" in line and "Real Address" in line:
                     in_client_list = True
                     continue
