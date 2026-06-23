@@ -744,7 +744,7 @@ async function addSSLRoute() {
     document.getElementById('route-network').value = '';
     document.getElementById('route-netmask').value = '';
     document.getElementById('route-desc').value = '';
-    toast('Route added — restart OpenVPN server to apply', 'success');
+    toast('Route added. Reconnect VPN to receive the new route.', 'success');
     loadSSLRoutes();
   }
 }
@@ -753,7 +753,7 @@ async function delSSLRoute(id) {
   if (!confirm2('Delete this route?')) return;
   await DELETE(`/api/vpn/ssl/routes/${id}`);
   document.getElementById(`ssl-route-${id}`)?.remove();
-  toast('Route deleted — restart OpenVPN server to apply', 'success');
+  toast('Route deleted. Reconnect VPN to apply.', 'success');
 }
 
 async function genPSK() { const r = await POST('/api/vpn/ipsec/psk'); document.getElementById('bov-psk').value = r.psk; }

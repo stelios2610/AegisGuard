@@ -1512,11 +1512,19 @@ async def api_add_ssl_route(request: Request):
     if not network or not netmask:
         raise HTTPException(400, "network and netmask are required")
     database.add_ssl_vpn_route(network, netmask, description)
+    ssl_vpn.apply_push_route_rules(network, netmask)
+    ssl_vpn.refresh_server_conf()
     return {"status": "ok"}
 
 @app.delete("/api/vpn/ssl/routes/{rid}")
 async def api_del_ssl_route(rid: int):
+    conn = database.get_connection()
+    row = conn.execute("SELECT network, netmask FROM ssl_vpn_routes WHERE id=?", (rid,)).fetchone()
+    conn.close()
+    if row:
+        ssl_vpn.remove_push_route_rules(row["network"], row["netmask"])
     database.delete_ssl_vpn_route(rid)
+    ssl_vpn.refresh_server_conf()
     return {"status": "ok"}
 
 @app.get("/api/vpn/users/{uid}/config")

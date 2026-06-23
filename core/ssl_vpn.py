@@ -274,6 +274,72 @@ def get_server_status():
     return _server_status
 
 
+# ── Push Route iptables helpers ───────────────────────────────────────────────
+
+def _netmask_to_cidr(netmask: str) -> int:
+    return sum(bin(int(x)).count('1') for x in netmask.split('.'))
+
+
+def _get_lan_ip() -> str:
+    try:
+        conn = database.get_connection()
+        row = conn.execute("SELECT ip_address FROM vlans WHERE vlan_id=10 LIMIT 1").fetchone()
+        if not row:
+            row = conn.execute("SELECT ip_address FROM interfaces WHERE role='LAN' LIMIT 1").fetchone()
+        conn.close()
+        if row and row["ip_address"]:
+            return row["ip_address"].split("/")[0]
+    except Exception:
+        pass
+    return "192.168.0.254"
+
+
+def _vpn_cidr() -> str:
+    cfg = database.get_ssl_vpn_config()
+    subnet = cfg.get("server_subnet", "10.8.0.0")
+    netmask = cfg.get("server_netmask", "255.255.255.0")
+    return f"{subnet}/{_netmask_to_cidr(netmask)}"
+
+
+def apply_push_route_rules(network: str, netmask: str):
+    """Add iptables FORWARD + SNAT rules for a new push route."""
+    if not IS_LINUX:
+        return
+    cidr = f"{network}/{_netmask_to_cidr(netmask)}"
+    vpn_net = _vpn_cidr()
+    lan_ip = _get_lan_ip()
+    run(["iptables", "-I", "FORWARD", "-i", "tun0", "-d", cidr, "-j", "ACCEPT"])
+    run(["iptables", "-I", "FORWARD", "-s", cidr, "-o", "tun0", "-j", "ACCEPT"])
+    run(["iptables", "-t", "nat", "-I", "POSTROUTING",
+         "-s", vpn_net, "-d", cidr, "-j", "SNAT", "--to-source", lan_ip])
+    run(["netfilter-persistent", "save"])
+
+
+def remove_push_route_rules(network: str, netmask: str):
+    """Remove iptables FORWARD + SNAT rules for a deleted push route."""
+    if not IS_LINUX:
+        return
+    cidr = f"{network}/{_netmask_to_cidr(netmask)}"
+    vpn_net = _vpn_cidr()
+    lan_ip = _get_lan_ip()
+    run(["iptables", "-D", "FORWARD", "-i", "tun0", "-d", cidr, "-j", "ACCEPT"])
+    run(["iptables", "-D", "FORWARD", "-s", cidr, "-o", "tun0", "-j", "ACCEPT"])
+    run(["iptables", "-t", "nat", "-D", "POSTROUTING",
+         "-s", vpn_net, "-d", cidr, "-j", "SNAT", "--to-source", lan_ip])
+    run(["netfilter-persistent", "save"])
+
+
+def refresh_server_conf():
+    """Regenerate server.conf and copy to systemd service path (no restart)."""
+    write_server_config()
+    if IS_LINUX:
+        try:
+            os.makedirs("/etc/openvpn/server", exist_ok=True)
+            shutil.copy2(SERVER_CONF, "/etc/openvpn/server/server.conf")
+        except Exception:
+            pass
+
+
 def get_connected_clients():
     """Read OpenVPN status log for connected clients."""
     status_file = "/var/log/aegisguard-ssl-vpn-status.log"
