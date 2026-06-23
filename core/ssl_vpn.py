@@ -84,6 +84,13 @@ def write_server_config():
     def _block(tag, content):
         return f"<{tag}>\n{content.strip()}\n</{tag}>\n" if content else ""
 
+    _push_redirect = 'push "redirect-gateway def1 bypass-dhcp"\n' if cfg.get("redirect_gateway", 1) else ""
+    _routes = database.get_ssl_vpn_routes()
+    _push_routes = "".join(
+        f'push "route {r["network"]} {r["netmask"]}"\n'
+        for r in _routes if r.get("enabled")
+    )
+
     conf = f"""# FGUARD UTC SSL VPN Server
 # Generated: {datetime.now().isoformat()}
 
@@ -101,9 +108,7 @@ key-direction 0
 
 # Network
 server {subnet} {netmask}
-push "redirect-gateway def1 bypass-dhcp"
-push "route 10.0.0.0 255.255.255.0"
-push "dhcp-option DNS {cfg.get('dns1','1.1.1.1')}"
+{_push_redirect}{_push_routes}push "dhcp-option DNS {cfg.get('dns1','1.1.1.1')}"
 push "dhcp-option DNS {cfg.get('dns2','8.8.8.8')}"
 
 # Security

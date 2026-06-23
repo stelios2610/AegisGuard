@@ -343,6 +343,17 @@ def initialize():
         )
     """)
 
+    # ── SSL VPN push routes ───────────────────────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ssl_vpn_routes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            network TEXT NOT NULL,
+            netmask TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            enabled INTEGER DEFAULT 1
+        )
+    """)
+
     # ── VPN users (connect to SSL VPN or BOV) ─────────────────────────────────
     c.execute("""
         CREATE TABLE IF NOT EXISTS vpn_users (
@@ -1599,6 +1610,32 @@ def save_ssl_vpn_config(**kwargs):
     values = list(fields.values())
     conn = get_connection()
     conn.execute(f"UPDATE ssl_vpn_config SET {sets} WHERE id = 1", values)
+    conn.commit()
+    conn.close()
+
+
+# ─── SSL VPN Push Routes ─────────────────────────────────────────────────────
+
+def get_ssl_vpn_routes():
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM ssl_vpn_routes ORDER BY id").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def add_ssl_vpn_route(network: str, netmask: str, description: str = ""):
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO ssl_vpn_routes (network, netmask, description) VALUES (?, ?, ?)",
+        (network, netmask, description)
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_ssl_vpn_route(route_id: int):
+    conn = get_connection()
+    conn.execute("DELETE FROM ssl_vpn_routes WHERE id = ?", (route_id,))
     conn.commit()
     conn.close()
 

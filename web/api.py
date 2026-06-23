@@ -1499,6 +1499,26 @@ async def api_ssl_server_conf():
     return StreamingResponse(io.StringIO(content), media_type="text/plain",
                              headers={"Content-Disposition": "attachment; filename=aegisguard-ssl-vpn.conf"})
 
+@app.get("/api/vpn/ssl/routes")
+async def api_get_ssl_routes():
+    return database.get_ssl_vpn_routes()
+
+@app.post("/api/vpn/ssl/routes")
+async def api_add_ssl_route(request: Request):
+    data = await request.json()
+    network = data.get("network", "").strip()
+    netmask = data.get("netmask", "").strip()
+    description = data.get("description", "").strip()
+    if not network or not netmask:
+        raise HTTPException(400, "network and netmask are required")
+    database.add_ssl_vpn_route(network, netmask, description)
+    return {"status": "ok"}
+
+@app.delete("/api/vpn/ssl/routes/{rid}")
+async def api_del_ssl_route(rid: int):
+    database.delete_ssl_vpn_route(rid)
+    return {"status": "ok"}
+
 @app.get("/api/vpn/users/{uid}/config")
 async def api_vpn_user_config(uid: int):
     content = ssl_vpn.get_user_config_content(uid)
