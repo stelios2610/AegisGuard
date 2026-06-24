@@ -293,6 +293,20 @@ cp /opt/aegisguard/build/server-configs/vpn-auth.sh /etc/aegisguard/vpn-auth.sh 
 cp /opt/aegisguard/build/server-configs/vpn_auth_check.py /etc/aegisguard/vpn_auth_check.py 2>/dev/null || true
 chmod +x /etc/aegisguard/vpn-auth.sh 2>/dev/null || true
 
+# Tunnel watchdog scripts (WireGuard endpoint updater + IPSec watchdog)
+cp /opt/aegisguard/build/server-configs/fguard-wg-updater.sh /usr/local/bin/fguard-wg-updater.sh
+cp /opt/aegisguard/build/server-configs/fguard-ipsec-watchdog.sh /usr/local/bin/fguard-ipsec-watchdog.sh
+chmod 755 /usr/local/bin/fguard-wg-updater.sh /usr/local/bin/fguard-ipsec-watchdog.sh
+chown root:root /usr/local/bin/fguard-wg-updater.sh /usr/local/bin/fguard-ipsec-watchdog.sh
+cat > /etc/cron.d/fguard-tunnel-watchdog << 'CRONEOF'
+# FGUARD UTC WireGuard endpoint updater + IPSec watchdog
+*/2 * * * * root /usr/local/bin/fguard-wg-updater.sh
+*/2 * * * * root /usr/local/bin/fguard-ipsec-watchdog.sh
+CRONEOF
+chmod 644 /etc/cron.d/fguard-tunnel-watchdog
+chown root:root /etc/cron.d/fguard-tunnel-watchdog
+log "Tunnel watchdog scripts installed"
+
 systemctl start aegisguard
 sleep 3
 
