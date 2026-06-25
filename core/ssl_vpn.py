@@ -302,30 +302,28 @@ def _vpn_cidr() -> str:
 
 
 def apply_push_route_rules(network: str, netmask: str):
-    """Add iptables FORWARD + SNAT rules for a new push route."""
+    """Add iptables FORWARD + MASQUERADE rules for a new push route."""
     if not IS_LINUX:
         return
     cidr = f"{network}/{_netmask_to_cidr(netmask)}"
     vpn_net = _vpn_cidr()
-    lan_ip = _get_lan_ip()
     run(["iptables", "-I", "FORWARD", "-i", "tun0", "-d", cidr, "-j", "ACCEPT"])
     run(["iptables", "-I", "FORWARD", "-s", cidr, "-o", "tun0", "-j", "ACCEPT"])
     run(["iptables", "-t", "nat", "-I", "POSTROUTING",
-         "-s", vpn_net, "-d", cidr, "-j", "SNAT", "--to-source", lan_ip])
+         "-s", vpn_net, "-d", cidr, "-j", "MASQUERADE"])
     run(["netfilter-persistent", "save"])
 
 
 def remove_push_route_rules(network: str, netmask: str):
-    """Remove iptables FORWARD + SNAT rules for a deleted push route."""
+    """Remove iptables FORWARD + MASQUERADE rules for a deleted push route."""
     if not IS_LINUX:
         return
     cidr = f"{network}/{_netmask_to_cidr(netmask)}"
     vpn_net = _vpn_cidr()
-    lan_ip = _get_lan_ip()
     run(["iptables", "-D", "FORWARD", "-i", "tun0", "-d", cidr, "-j", "ACCEPT"])
     run(["iptables", "-D", "FORWARD", "-s", cidr, "-o", "tun0", "-j", "ACCEPT"])
     run(["iptables", "-t", "nat", "-D", "POSTROUTING",
-         "-s", vpn_net, "-d", cidr, "-j", "SNAT", "--to-source", lan_ip])
+         "-s", vpn_net, "-d", cidr, "-j", "MASQUERADE"])
     run(["netfilter-persistent", "save"])
 
 
