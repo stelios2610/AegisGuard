@@ -236,6 +236,23 @@
     <span class="topbar-stat">Mem: <span id="stat-mem">—</span></span>
   </div>
 
+  <!-- License Banner -->
+  {% if lic_status == 'expired' %}
+  <div style="background:#c0392b;color:#fff;padding:9px 20px;font-size:13px;text-align:center;font-weight:500">
+    &#9888; Η άδεια FGUARD UTC έχει λήξει. Web Filter, App Control και GeoIP Blocking έχουν απενεργοποιηθεί.
+    Επικοινωνήστε με τον πάροχό σας για ανανέωση.
+  </div>
+  {% elif lic_status == 'expiring' %}
+  <div style="background:#e67e22;color:#fff;padding:9px 20px;font-size:13px;text-align:center;font-weight:500">
+    &#9888; Η άδεια FGUARD UTC λήγει σε <strong>{{ lic_days }} ημέρες</strong> ({{ lic_expires }}).
+    Επικοινωνήστε με τον πάροχό σας για ανανέωση.
+  </div>
+  {% elif lic_status in ('missing', 'invalid') %}
+  <div style="background:#7f8c8d;color:#fff;padding:9px 20px;font-size:13px;text-align:center;font-weight:500">
+    &#9888; Δεν βρέθηκε έγκυρη άδεια FGUARD UTC. Επικοινωνήστε με τον πάροχό σας.
+  </div>
+  {% endif %}
+
   <!-- Content -->
   <div class="content">
     {% block content %}{% endblock %}

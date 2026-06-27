@@ -24,6 +24,7 @@ from core import multiwan_manager, ha_manager
 from core.ipsec_manager import (create_ipsec_tunnel, remove_ipsec_tunnel,
                                  get_ipsec_tunnels, get_ipsec_sa, generate_psk)
 from core.mfa import hash_password
+from core import license_manager
 
 database.initialize()
 ensure_default_admin()
@@ -131,17 +132,31 @@ def _auto_vpn_rules(vpn_name: str, protocol: str, port: str):
             rules_engine.sync_rule_to_system(new_rule)
 
 
+def _require_license(feature: str = "This feature"):
+    """Raise HTTP 403 if license is expired or missing."""
+    if IS_LINUX and not license_manager.is_licensed():
+        raise HTTPException(
+            status_code=403,
+            detail=f"{feature} requires an active FGUARD UTC license. Please contact your provider to renew."
+        )
+
+
 def _ctx(request, **kw):
     stats = database.get_log_stats()
     alerts = ips.get_alerts(5)
     vpn_statuses = vpn_manager.get_all_statuses()
     connected_vpns = sum(1 for s in vpn_statuses.values() if s.get("status") == "Connected")
+    lic_status, lic_info = license_manager.validate_license() if IS_LINUX else ("valid", {"days_remaining": 9999, "customer": "", "expires": ""})
     return templates.TemplateResponse(request, kw.pop("template"), {
         "stats": stats,
         "threat_count": len(alerts),
         "is_linux": IS_LINUX,
         "is_root": is_root(),
         "connected_vpns": connected_vpns,
+        "lic_status": lic_status,
+        "lic_days": lic_info.get("days_remaining", 0),
+        "lic_customer": lic_info.get("customer", ""),
+        "lic_expires": lic_info.get("expires", ""),
         **kw
     })
 
@@ -711,14 +726,17 @@ async def api_get_app_rules():
     return database.get_app_rules()
 @app.post("/api/appcontrol/rules")
 async def api_add_app_rule(r: AppRuleCreate):
+    _require_license("Application Control")
     database.add_app_rule(**r.model_dump()); return {"status":"ok"}
 @app.delete("/api/appcontrol/rules/{rid}")
 async def api_del_app_rule(rid: int):
+    _require_license("Application Control")
     rule = next((r for r in database.get_app_rules() if r["id"]==rid), None)
     if rule: app_control.remove_app_rule(rule)
     database.delete_app_rule(rid); return {"status":"ok"}
 @app.post("/api/appcontrol/sync")
 async def api_sync_app():
+    _require_license("Application Control")
     r = app_control.sync_all_app_rules()
     return {"synced": sum(1 for _,ok,_ in r if ok), "total": len(r)}
 @app.get("/api/appcontrol/running")
@@ -727,6 +745,7 @@ async def api_running():
 
 @app.post("/api/appcontrol/block/{app_name}")
 async def api_block_app(app_name: str):
+    _require_license("Application Control")
     ok, msg = app_control.apply_app_block(app_name)
     if not ok:
         raise HTTPException(status_code=400, detail=msg)
@@ -734,6 +753,7 @@ async def api_block_app(app_name: str):
 
 @app.delete("/api/appcontrol/block/{app_name}")
 async def api_unblock_app(app_name: str):
+    _require_license("Application Control")
     ok, msg = app_control.remove_app_block(app_name)
     if not ok:
         raise HTTPException(status_code=400, detail=msg)
@@ -756,16 +776,20 @@ async def api_get_wf():
     return database.get_web_filters()
 @app.post("/api/webfilter")
 async def api_add_wf(f: WFCreate):
+    _require_license("Web Filter")
     database.add_web_filter(**f.model_dump()); return {"status":"ok"}
 @app.delete("/api/webfilter/{fid}")
 async def api_del_wf(fid: int):
+    _require_license("Web Filter")
     database.delete_web_filter(fid); return {"status":"ok"}
 @app.post("/api/webfilter/apply")
 async def api_apply_wf():
+    _require_license("Web Filter")
     ok, msg = web_filter.apply_filters(); web_filter.flush_dns()
     return {"status":"ok" if ok else "error","message":msg}
 @app.post("/api/webfilter/remove")
 async def api_remove_wf():
+    _require_license("Web Filter")
     ok, msg = web_filter.remove_filters(); return {"status":"ok" if ok else "error","message":msg}
 
 class CategoryToggle(BaseModel):
@@ -773,6 +797,7 @@ class CategoryToggle(BaseModel):
 
 @app.post("/api/webfilter/category")
 async def api_toggle_category(c: CategoryToggle):
+    _require_license("Web Filter")
     database.update_web_category(c.name, c.enabled)
     ok, msg = web_filter.apply_filters(); web_filter.flush_dns()
     return {"status":"ok" if ok else "error","message":msg}
@@ -999,6 +1024,7 @@ async def api_ddos_unblock_all():
 
 @app.post("/api/security/geoip")
 async def api_save_geoip(request: Request):
+    _require_license("GeoIP Blocking")
     import json as _json
     data = await request.json()
     codes = data.get("blocked_countries", [])
@@ -1014,6 +1040,7 @@ async def api_geo_blocked():
     return reputation.get_blocked_countries()
 @app.post("/api/security/geo/blocked")
 async def api_set_geo(request: Request):
+    _require_license("GeoIP Blocking")
     data = await request.json()
     import json as _json
     database.set_setting("blocked_countries", _json.dumps(data.get("countries",[])))
@@ -1024,12 +1051,14 @@ async def api_geo_lookup(request: Request):
 
 @app.post("/api/security/geo/apply")
 async def api_geoblock_apply():
+    _require_license("GeoIP Blocking")
     from core import geoblock
     ok, msg = geoblock.apply_geoblock()
     return {"status": "ok" if ok else "error", "message": msg}
 
 @app.post("/api/security/geo/remove")
 async def api_geoblock_remove():
+    _require_license("GeoIP Blocking")
     from core import geoblock
     ok, msg = geoblock.remove_geoblock()
     return {"status": "ok" if ok else "error", "message": msg}
