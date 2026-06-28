@@ -72,25 +72,31 @@ _threading.Thread(target=_log_pruner, daemon=True).start()
 # ── License enforcement — unapply rules when license is not active ────────────
 def _license_enforcer():
     """Runs at startup and every hour. If license is expired/missing/invalid,
-    automatically removes webfilter rules from hosts and clears GeoIP iptables."""
+    automatically removes webfilter (dnsmasq + hosts) and GeoIP iptables rules."""
     import time
     from core import license_manager as _lm
     from core import web_filter as _wf
     from core import geoblock as _gb
+
+    _last_status = [None]  # track status changes
 
     def _enforce():
         if not _IS_LINUX:
             return
         status, _ = _lm.validate_license(force=True)
         if status not in ("valid", "expiring"):
-            try:
-                _wf.remove_filters()
-            except Exception:
-                pass
-            try:
-                _gb.remove_geoblock()
-            except Exception:
-                pass
+            # Only run cleanup if status changed (or first run)
+            if _last_status[0] != status:
+                try:
+                    _wf.remove_filters()
+                    _wf.flush_dns()
+                except Exception:
+                    pass
+                try:
+                    _gb.remove_geoblock()
+                except Exception:
+                    pass
+        _last_status[0] = status
 
     # Check immediately at startup (small delay to let service init)
     time.sleep(5)
@@ -1877,7 +1883,8 @@ async def api_license_status():
 @app.post("/api/license")
 async def api_license_save(request: Request):
     data = await request.json()
-    key = data.get("license_key", "").strip()
+    # Accept both "key" (from GUI) and "license_key" (legacy)
+    key = (data.get("key") or data.get("license_key") or "").strip()
     if not key:
         raise HTTPException(400, "License key is required")
     import base64 as _b64, json as _json
@@ -1898,6 +1905,17 @@ async def api_license_save(request: Request):
     if status == "invalid":
         raise HTTPException(400, "License key saved but validation failed — check MAC address or signature")
     database.add_log("INFO", details=f"License updated: {status}, customer={info.get('customer','')}, expires={info.get('expires','')}")
+    # Re-apply licensed features now that license is active
+    if IS_LINUX and status in ("valid", "expiring"):
+        try:
+            web_filter.apply_filters()
+        except Exception:
+            pass
+        try:
+            from core import geoblock as _gb
+            _gb.apply_geoblock()
+        except Exception:
+            pass
     return {"status": status, **info}
 
 @app.delete("/api/license")
