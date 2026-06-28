@@ -47,8 +47,17 @@ class App(tk.Tk):
         self.title("FGUARD UTC — License Generator")
         self.resizable(False, False)
         self.configure(bg="#1e2329")
+        self._set_icon()
         self._build_ui()
         self._center()
+
+    def _set_icon(self):
+        img = tk.PhotoImage(width=32, height=32)
+        img.put("#c0392b", to=(0, 0, 32, 32))   # red background
+        img.put("white",   to=(8,  5, 12, 27))  # vertical bar of F
+        img.put("white",   to=(8,  5, 24,  9))  # top horizontal
+        img.put("white",   to=(8, 15, 20, 19))  # middle horizontal
+        self.iconphoto(True, img)
 
     def _center(self):
         self.update_idletasks()
