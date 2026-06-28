@@ -5,6 +5,22 @@
 
 {% block content %}
 
+{% if lic_status in ('expired', 'missing', 'invalid') %}
+<div style="position:relative;margin-bottom:16px">
+  <div style="background:var(--bg-card);border:2px solid var(--danger);border-radius:8px;padding:28px 24px;text-align:center">
+    <div style="font-size:36px;margin-bottom:8px">🔒</div>
+    <div style="font-size:17px;font-weight:700;color:var(--danger);margin-bottom:6px">WebBlocker — License Required</div>
+    <div style="color:var(--text-muted);font-size:14px;max-width:460px;margin:0 auto">
+      Web Filter is disabled because your FGUARD UTC license is
+      {% if lic_status == 'expired' %}expired{% else %}not activated{% endif %}.
+      Your existing rules are preserved and will resume automatically when the license is renewed.
+    </div>
+    <a href="/settings#license" onclick="location.href='/settings';setTimeout(()=>{if(window.switchTab)switchTab('license')},400);return false;"
+       class="btn btn-primary" style="margin-top:16px;display:inline-block">Go to Settings → License</a>
+  </div>
+</div>
+{% else %}
+
 {% if not is_root %}
 <div class="alert alert-warning">
   ⚠ FGUARD UTC is not running as administrator. Applying host-based web filters requires elevated privileges.
@@ -170,6 +186,7 @@
     </div>
   </div>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}

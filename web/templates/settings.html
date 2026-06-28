@@ -20,7 +20,8 @@
   <button class="btn btn-secondary" id="tab-btn-email" onclick="switchTab('email')" style="border-radius:0;border:none;border-right:1px solid var(--border)">Email Alerts</button>
   <button class="btn btn-secondary" id="tab-btn-syslog" onclick="switchTab('syslog')" style="border-radius:0;border:none;border-right:1px solid var(--border)">Syslog</button>
   <button class="btn btn-secondary" id="tab-btn-danger" onclick="switchTab('danger')" style="border-radius:0;border:none;border-right:1px solid var(--border)">Danger Zone</button>
-  <button class="btn btn-secondary" id="tab-btn-about" onclick="switchTab('about')" style="border-radius:0;border:none">About</button>
+  <button class="btn btn-secondary" id="tab-btn-about" onclick="switchTab('about')" style="border-radius:0;border:none;border-right:1px solid var(--border)">About</button>
+  <button class="btn btn-secondary" id="tab-btn-license" onclick="switchTab('license')" style="border-radius:0;border:none">🔑 License</button>
 </div>
 
 <!-- ══════════════════ GENERAL TAB ══════════════════ -->
@@ -570,11 +571,87 @@
   </div>
 </div>
 
+<!-- ══════════════════ LICENSE TAB ══════════════════ -->
+<div id="tab-license" style="display:none">
+  <div class="grid grid-2">
+
+    <!-- Current Status -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">License Status</div>
+          <div class="card-sub">Current activation status for this appliance</div>
+        </div>
+      </div>
+      <div id="lic-status-block" style="padding:8px 0">
+        {% if lic_status == 'valid' %}
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <span style="background:var(--success);color:#fff;border-radius:20px;padding:4px 14px;font-size:13px;font-weight:600">✔ Active</span>
+          <span style="color:var(--text-muted);font-size:13px">{{ lic_days }} days remaining</span>
+        </div>
+        {% elif lic_status == 'expiring' %}
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <span style="background:var(--warning);color:#fff;border-radius:20px;padding:4px 14px;font-size:13px;font-weight:600">⚠ Expiring Soon</span>
+          <span style="color:var(--text-muted);font-size:13px">{{ lic_days }} days remaining</span>
+        </div>
+        {% elif lic_status == 'expired' %}
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <span style="background:var(--danger);color:#fff;border-radius:20px;padding:4px 14px;font-size:13px;font-weight:600">✖ Expired</span>
+        </div>
+        {% else %}
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <span style="background:#555;color:#fff;border-radius:20px;padding:4px 14px;font-size:13px;font-weight:600">○ No License</span>
+        </div>
+        {% endif %}
+
+        <table style="width:100%;font-size:13px;border-collapse:collapse">
+          <tr><td style="color:var(--text-muted);padding:5px 0;width:120px">Customer</td>
+              <td id="lic-customer" style="color:var(--text)">{{ lic_customer or '—' }}</td></tr>
+          <tr><td style="color:var(--text-muted);padding:5px 0">Expires</td>
+              <td id="lic-expires" style="color:var(--text)">{{ lic_expires or '—' }}</td></tr>
+          <tr><td style="color:var(--text-muted);padding:5px 0">Status</td>
+              <td id="lic-status-txt" style="color:var(--text)">{{ lic_status }}</td></tr>
+        </table>
+
+        <div style="margin-top:14px;padding:10px;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text-muted)">
+          <strong style="color:var(--text)">Features controlled by license:</strong><br>
+          Web Filter &nbsp;·&nbsp; Application Control &nbsp;·&nbsp; GeoIP Blocking
+        </div>
+
+        <button class="btn btn-danger" style="margin-top:14px;width:100%" onclick="removeLicense()">
+          🗑 Remove License
+        </button>
+      </div>
+    </div>
+
+    <!-- Activate / Update -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Activate / Update License</div>
+          <div class="card-sub">Paste the license key provided by your vendor</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">License Key</label>
+        <textarea id="lic-key-input" class="form-control font-mono"
+                  rows="6" placeholder="Paste your FGUARD UTC license key here..."
+                  style="font-size:11px;resize:vertical"></textarea>
+      </div>
+      <button class="btn btn-primary" style="width:100%" onclick="activateLicense()">
+        ✔ Activate License
+      </button>
+      <div id="lic-result" style="margin-top:10px;font-size:13px"></div>
+    </div>
+
+  </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
 <script>
-const SETTINGS_TABS = ['general','firewall','network','vpnpaths','email','syslog','danger','about'];
+const SETTINGS_TABS = ['general','firewall','network','vpnpaths','email','syslog','danger','about','license'];
 function switchTab(name) {
   SETTINGS_TABS.forEach(t => {
     document.getElementById('tab-' + t).style.display = t === name ? '' : 'none';
@@ -822,5 +899,38 @@ async function factoryReset() {
 document.getElementById('add-syslog-modal').addEventListener('click', e => {
   if (e.target === document.getElementById('add-syslog-modal')) closeModal('add-syslog-modal');
 });
+
+// ── License ──
+async function activateLicense() {
+  const key = document.getElementById('lic-key-input').value.trim();
+  const res = document.getElementById('lic-result');
+  if (!key) { res.innerHTML = '<span style="color:var(--danger)">Paste a license key first.</span>'; return; }
+  res.innerHTML = '<span style="color:var(--text-muted)">Validating…</span>';
+  try {
+    const r = await fetch('/api/license', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({key})
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || 'Error');
+    toast('License activated successfully', 'success');
+    res.innerHTML = '<span style="color:var(--success)">✔ License activated — reloading…</span>';
+    setTimeout(() => location.reload(), 1200);
+  } catch (e) {
+    res.innerHTML = `<span style="color:var(--danger)">✖ ${e.message}</span>`;
+  }
+}
+
+async function removeLicense() {
+  if (!confirm2('Remove the current license key? Licensed features will be disabled until a new key is entered.')) return;
+  try {
+    const r = await fetch('/api/license', {method: 'DELETE'});
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || 'Error');
+    toast('License removed', 'info');
+    setTimeout(() => location.reload(), 800);
+  } catch (e) { toast('Error: ' + e.message, 'error'); }
+}
 </script>
 {% endblock %}

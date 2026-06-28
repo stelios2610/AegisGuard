@@ -1831,6 +1831,48 @@ async def api_ha_sync():
     return {"status": "ok" if ok else "error", "message": msg}
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — License
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/license")
+async def api_license_status():
+    status, info = license_manager.validate_license(force=True)
+    return {"status": status, **info}
+
+@app.post("/api/license")
+async def api_license_save(request: Request):
+    data = await request.json()
+    key = data.get("license_key", "").strip()
+    if not key:
+        raise HTTPException(400, "License key is required")
+    import base64 as _b64, json as _json
+    try:
+        _json.loads(_b64.b64decode(key).decode())
+    except Exception:
+        raise HTTPException(400, "Invalid license key format")
+    try:
+        run(["mkdir", "-p", "/etc/aegisguard"])
+        ok, out, err = run(["bash", "-c", f'printf "%s" "{key}" > /etc/aegisguard/license.key'])
+        if not ok:
+            raise HTTPException(500, f"Could not write license file: {err}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    status, info = license_manager.validate_license(force=True)
+    if status == "invalid":
+        raise HTTPException(400, "License key saved but validation failed — check MAC address or signature")
+    database.add_log("INFO", details=f"License updated: {status}, customer={info.get('customer','')}, expires={info.get('expires','')}")
+    return {"status": status, **info}
+
+@app.delete("/api/license")
+async def api_license_remove():
+    run(["rm", "-f", "/etc/aegisguard/license.key"])
+    license_manager.validate_license(force=True)
+    return {"status": "ok", "message": "License removed"}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("web.api:app", host="0.0.0.0", port=8080, reload=False)
