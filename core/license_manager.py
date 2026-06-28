@@ -76,13 +76,25 @@ def validate_license(force=False):
         if license_mac not in _get_all_macs():
             return _set("invalid", {**empty, "customer": data.get("customer", "")})
 
-        expires_dt = datetime.strptime(data["expires"], "%Y-%m-%d")
+        expires_str = data.get("expires", "")
+
+        # Lifetime license: expires == "9999-12-31"
+        if expires_str == "9999-12-31":
+            info = {
+                "days_remaining": 99999,
+                "customer": data.get("customer", ""),
+                "expires": "Lifetime",
+                "issued": data.get("issued", ""),
+            }
+            return _set("valid", info)
+
+        expires_dt = datetime.strptime(expires_str, "%Y-%m-%d")
         days_remaining = (expires_dt - datetime.now()).days
 
         info = {
             "days_remaining": days_remaining,
             "customer": data.get("customer", ""),
-            "expires": data.get("expires", ""),
+            "expires": expires_str,
             "issued": data.get("issued", ""),
         }
 

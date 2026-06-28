@@ -69,6 +69,40 @@ def _log_pruner():
 
 _threading.Thread(target=_log_pruner, daemon=True).start()
 
+# ── License enforcement — unapply rules when license is not active ────────────
+def _license_enforcer():
+    """Runs at startup and every hour. If license is expired/missing/invalid,
+    automatically removes webfilter rules from hosts and clears GeoIP iptables."""
+    import time
+    from core import license_manager as _lm
+    from core import web_filter as _wf
+    from core import geoblock as _gb
+
+    def _enforce():
+        if not _IS_LINUX:
+            return
+        status, _ = _lm.validate_license(force=True)
+        if status not in ("valid", "expiring"):
+            try:
+                _wf.remove_filters()
+            except Exception:
+                pass
+            try:
+                _gb.remove_geoblock()
+            except Exception:
+                pass
+
+    # Check immediately at startup (small delay to let service init)
+    time.sleep(5)
+    _enforce()
+
+    while True:
+        time.sleep(3600)
+        _enforce()
+
+if _IS_LINUX:
+    _threading.Thread(target=_license_enforcer, daemon=True).start()
+
 app = FastAPI(title="AegisGuard", version="1.0.0", docs_url=None,
              openapi_url=None)  # disable openapi exposure
 

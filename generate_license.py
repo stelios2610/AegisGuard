@@ -17,12 +17,16 @@ SECRET_KEY = "CHANGE_THIS_TO_YOUR_SECRET_KEY"
 LOG_FILE = "licenses.csv"
 
 
-def generate_license(mac_address: str, customer_name: str, months: int = 12) -> str:
+LIFETIME_EXPIRES = "9999-12-31"
+
+
+def generate_license(mac_address: str, customer_name: str, months: int = 12, lifetime: bool = False) -> str:
+    expires = LIFETIME_EXPIRES if lifetime else (datetime.now() + timedelta(days=30 * months)).strftime("%Y-%m-%d")
     data = {
         "mac": mac_address.upper().strip(),
         "customer": customer_name.strip(),
         "issued": datetime.now().strftime("%Y-%m-%d"),
-        "expires": (datetime.now() + timedelta(days=30 * months)).strftime("%Y-%m-%d"),
+        "expires": expires,
     }
     payload = json.dumps(data, separators=(',', ':'), sort_keys=True)
     signature = hashlib.sha256((payload + SECRET_KEY).encode()).hexdigest()
@@ -46,19 +50,21 @@ if __name__ == "__main__":
 
     mac = input("\nMAC address συσκευής (π.χ. AA:BB:CC:DD:EE:FF): ").strip()
     customer = input("Όνομα πελάτη: ").strip()
-    months_str = input("Διάρκεια σε μήνες [12]: ").strip()
+    print("Διάρκεια: 6 / 12 / 24 μήνες  ή  0 = Lifetime (επ' αόριστον)")
+    months_str = input("Επιλογή [12]: ").strip()
     months = int(months_str) if months_str.isdigit() else 12
+    lifetime = (months == 0)
 
-    key = generate_license(mac, customer, months)
-    expires = (datetime.now() + timedelta(days=30 * months)).strftime("%Y-%m-%d")
+    key = generate_license(mac, customer, months if not lifetime else 0, lifetime=lifetime)
+    expires = LIFETIME_EXPIRES if lifetime else (datetime.now() + timedelta(days=30 * months)).strftime("%Y-%m-%d")
 
-    save_to_log(mac, customer, expires, key)
+    save_to_log(mac, customer, "LIFETIME" if lifetime else expires, key)
 
     print("\n" + "=" * 60)
     print(f"  Πελάτης : {customer}")
     print(f"  MAC     : {mac.upper()}")
     print(f"  Έκδοση  : {datetime.now().strftime('%Y-%m-%d')}")
-    print(f"  Λήξη    : {expires}")
+    print(f"  Λήξη    : {'LIFETIME (επ\' αόριστον)' if lifetime else expires}")
     print(f"\n  License Key:")
     print(f"  {key}")
     print("=" * 60)

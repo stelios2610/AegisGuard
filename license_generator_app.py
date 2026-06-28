@@ -11,11 +11,14 @@ from datetime import datetime, timedelta
 # ── Πρέπει να είναι ΙΔΙΟ με core/license_manager.py ──────────────────────────
 SECRET_KEY = "CHANGE_THIS_TO_YOUR_SECRET_KEY"
 LOG_FILE = os.path.join(os.path.dirname(__file__), "licenses.csv")
+LIFETIME_EXPIRES = "9999-12-31"
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 def generate_license(mac: str, customer: str, months: int) -> tuple[str, str]:
-    expires = (datetime.now() + timedelta(days=30 * months)).strftime("%Y-%m-%d")
+    """months=0 → lifetime license"""
+    lifetime = (months == 0)
+    expires = LIFETIME_EXPIRES if lifetime else (datetime.now() + timedelta(days=30 * months)).strftime("%Y-%m-%d")
     data = {
         "mac": mac.upper().strip(),
         "customer": customer.strip(),
@@ -26,7 +29,7 @@ def generate_license(mac: str, customer: str, months: int) -> tuple[str, str]:
     signature = hashlib.sha256((payload + SECRET_KEY).encode()).hexdigest()
     data["signature"] = signature
     key = base64.b64encode(json.dumps(data).encode()).decode()
-    return key, expires
+    return key, "LIFETIME" if lifetime else expires
 
 
 def save_log(mac, customer, expires, key):
@@ -102,7 +105,7 @@ class App(tk.Tk):
         lbl("Διάρκεια (μήνες)")
         months_frame = tk.Frame(form, bg=BG)
         months_frame.pack(fill="x")
-        for m, txt in [(6, "6 μήνες"), (12, "12 μήνες"), (24, "24 μήνες")]:
+        for m, txt in [(6, "6 μήνες"), (12, "12 μήνες"), (24, "24 μήνες"), (0, "♾ Lifetime")]:
             tk.Radiobutton(months_frame, text=txt, variable=self.months_var,
                            value=str(m), bg=BG, fg=FG, selectcolor=ENTRY_BG,
                            activebackground=BG, activeforeground=FG,
@@ -198,7 +201,8 @@ class App(tk.Tk):
 
         self._set_text(self.key_text, key)
         self._set_text(self.cmd_text, cmds)
-        self.info_var.set(f"✅  License για «{customer}» | Λήξη: {expires} | Αποθηκεύτηκε στο licenses.csv")
+        expiry_label = "♾ LIFETIME (επ' αόριστον)" if expires == "LIFETIME" else f"Λήξη: {expires}"
+        self.info_var.set(f"✅  License για «{customer}» | {expiry_label} | Αποθηκεύτηκε στο licenses.csv")
 
     def _set_text(self, widget, text):
         widget.config(state="normal")
