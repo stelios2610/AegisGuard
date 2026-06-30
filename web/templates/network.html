@@ -252,7 +252,11 @@
           <strong class="font-mono">{{ dc.interface }}</strong>
           <span class="text-muted" style="margin-left:8px">{{ dc.start_ip }} — {{ dc.end_ip }}</span>
         </div>
-        <span class="badge badge-{{ 'allow' if dc.enabled else 'disabled' }}">{{ 'Enabled' if dc.enabled else 'Disabled' }}</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="badge badge-{{ 'allow' if dc.enabled else 'disabled' }}">{{ 'Enabled' if dc.enabled else 'Disabled' }}</span>
+          <button class="btn btn-secondary btn-sm" onclick="editDhcp({{ dc|tojson }})">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteDhcp('{{ dc.interface }}')">✕</button>
+        </div>
       </div>
       <div class="grid grid-3">
         <div><span class="form-label">Start IP</span><div class="font-mono">{{ dc.start_ip }}</div></div>
@@ -267,7 +271,7 @@
     <div class="alert alert-info">No DHCP server configurations. Add a pool below.</div>
     {% endfor %}
     <div style="padding-top:8px">
-      <button class="btn btn-primary" onclick="openModal('add-dhcp-modal')">+ Add DHCP Pool</button>
+      <button class="btn btn-primary" onclick="openDhcpAdd()">+ Add DHCP Pool</button>
       <button class="btn btn-secondary" onclick="applyDhcp()">Apply DHCP Config</button>
     </div>
   </div>
@@ -846,7 +850,7 @@
 <div class="modal-overlay" id="add-dhcp-modal">
   <div class="modal" style="width:600px">
     <div class="modal-header">
-      <span class="modal-title">Add DHCP Pool</span>
+      <span class="modal-title" id="dhcp-modal-title">Add DHCP Pool</span>
       <button class="modal-close" onclick="closeModal('add-dhcp-modal')">✕</button>
     </div>
     <div class="modal-body">
@@ -1497,6 +1501,47 @@ async function applyRoutes() {
 }
 
 // ── DHCP ──
+function openDhcpAdd() {
+  document.getElementById('dhcp-modal-title').textContent = 'Add DHCP Pool';
+  const sel = document.getElementById('dhcp-interface');
+  sel.disabled = false;
+  sel.selectedIndex = 0;
+  document.getElementById('dhcp-start').value = '';
+  document.getElementById('dhcp-end').value = '';
+  document.getElementById('dhcp-mask').value = '255.255.255.0';
+  document.getElementById('dhcp-gateway').value = '';
+  document.getElementById('dhcp-dns1').value = '1.1.1.1';
+  document.getElementById('dhcp-dns2').value = '8.8.8.8';
+  document.getElementById('dhcp-lease').value = '86400';
+  document.getElementById('dhcp-domain').value = '';
+  openModal('add-dhcp-modal');
+}
+
+function editDhcp(dc) {
+  document.getElementById('dhcp-modal-title').textContent = 'Edit DHCP Pool';
+  const sel = document.getElementById('dhcp-interface');
+  sel.value = dc.interface;
+  sel.disabled = true;
+  document.getElementById('dhcp-start').value = dc.start_ip || '';
+  document.getElementById('dhcp-end').value = dc.end_ip || '';
+  document.getElementById('dhcp-mask').value = dc.subnet_mask || '255.255.255.0';
+  document.getElementById('dhcp-gateway').value = dc.gateway || '';
+  document.getElementById('dhcp-dns1').value = dc.dns1 || '1.1.1.1';
+  document.getElementById('dhcp-dns2').value = dc.dns2 || '8.8.8.8';
+  document.getElementById('dhcp-lease').value = dc.lease_time || 86400;
+  document.getElementById('dhcp-domain').value = dc.domain || '';
+  openModal('add-dhcp-modal');
+}
+
+async function deleteDhcp(iface) {
+  if (!confirm2('Delete DHCP pool for ' + iface + '?')) return;
+  try {
+    await DELETE('/api/dhcp/config/' + encodeURIComponent(iface));
+    toast('DHCP pool deleted', 'success');
+    setTimeout(() => location.reload(), 800);
+  } catch (e) { toast('Error: ' + e.message, 'error'); }
+}
+
 async function saveDhcp() {
   const iface = document.getElementById('dhcp-interface').value;
   const start = document.getElementById('dhcp-start').value.trim();
@@ -1516,6 +1561,7 @@ async function saveDhcp() {
     await POST('/api/dhcp/config', data);
     const r = await POST('/api/dhcp/apply');
     toast(r.status === 'ok' ? 'DHCP saved & applied' : 'Saved — apply failed: ' + (r.message || ''), r.status === 'ok' ? 'success' : 'error');
+    document.getElementById('dhcp-interface').disabled = false;
     closeModal('add-dhcp-modal');
     setTimeout(() => location.reload(), 1200);
   } catch (e) { toast('Error: ' + e.message, 'error'); }

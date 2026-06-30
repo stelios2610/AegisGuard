@@ -636,6 +636,11 @@ async def api_save_dhcp(c: DhcpConfig):
     database.save_dhcp_config(**c.model_dump())
     network_manager.write_dhcp_config()
     return {"status": "ok"}
+@app.delete("/api/dhcp/config/{iface}")
+async def api_delete_dhcp(iface: str):
+    database.delete_dhcp_config(iface)
+    network_manager.write_dhcp_config()
+    return {"status": "ok"}
 @app.post("/api/dhcp/apply")
 async def api_apply_dhcp():
     ok, msg = network_manager.write_dhcp_config(); return {"status":"ok" if ok else "error","message":msg}

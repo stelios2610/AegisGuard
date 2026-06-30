@@ -1053,6 +1053,16 @@ def add_dhcp_lease(mac, ip, hostname="", interface=""):
 
 def delete_dhcp_lease(lease_id):
     conn = get_connection()
+    conn.execute("DELETE FROM dhcp_leases WHERE id = ?", (lease_id,))
+    conn.commit()
+    conn.close()
+
+
+def delete_dhcp_config(interface):
+    conn = get_connection()
+    conn.execute("DELETE FROM dhcp_config WHERE interface = ?", (interface,))
+    conn.commit()
+    conn.close()
 
 
 # ── DHCP Relay ────────────────────────────────────────────────────────────────
