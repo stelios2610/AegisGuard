@@ -24,3 +24,24 @@ ssl-vpn-server.conf
 
 # Logs
 *.log
+
+# Server-specific debug/fix/diagnostic scripts (never commit these)
+check_*.py
+fix_*.py
+fix_*.sh
+diagnose*.py
+deploy*.py
+diag_*.py
+monitor_*.py
+run_install*.py
+save_*.py
+setup_vpn*.py
+vpn_clean*.py
+pentest*.py
+test_auth*.py
+fw_test*.py
+get_server*.py
+protect*.py
+ipsec_*.py
+close_wan*.py
+licenses.csv

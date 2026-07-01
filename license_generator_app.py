@@ -204,7 +204,7 @@ class App(tk.Tk):
 
         cmds = (
             f"sudo mkdir -p /etc/aegisguard\n"
-            f"echo Balloteli1997 | sudo -S bash -c 'printf \"%s\" \"{key}\" > /etc/aegisguard/license.key'\n"
+            f"sudo bash -c 'printf \"%s\" \"{key}\" > /etc/aegisguard/license.key'\n"
             f"sudo systemctl restart aegisguard"
         )
 
