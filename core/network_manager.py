@@ -229,6 +229,21 @@ def write_dhcp_config():
 
         with open("/etc/dnsmasq.d/aegisguard.conf", "w") as f:
             f.write(conf)
+
+        # Safety net: re-read and patch any missing VLAN interface= lines.
+        # Guards against DB edge-cases or future regressions that would break
+        # DNS for LAN clients without affecting DHCP.
+        with open("/etc/dnsmasq.d/aegisguard.conf") as f:
+            written = f.read()
+        missing_ifaces = [
+            f"interface={v['parent_interface']}.{v['vlan_id']}"
+            for v in database.get_vlans()
+            if v.get("enabled") and f"interface={v['parent_interface']}.{v['vlan_id']}" not in written
+        ]
+        if missing_ifaces:
+            with open("/etc/dnsmasq.d/aegisguard.conf", "a") as f:
+                f.write("\n" + "\n".join(missing_ifaces) + "\n")
+
         run(["systemctl", "restart", "dnsmasq"])
         return True, "dnsmasq config applied"
     except Exception as e:
