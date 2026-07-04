@@ -30,7 +30,7 @@ _VPN_PORTS = [
 ]
 
 # Country CIDR source: ipdeny.com (free, no key needed)
-_CIDR_URL = "http://www.ipdeny.com/ipblocks/data/aggregated/{cc}-aggregated.zone"
+_CIDR_URL = "https://www.ipdeny.com/ipblocks/data/aggregated/{cc}-aggregated.zone"
 
 
 def _get_wan_iface():

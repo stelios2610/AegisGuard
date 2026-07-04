@@ -9,7 +9,7 @@ import os
 from datetime import datetime, timedelta
 
 # ── Πρέπει να είναι ΙΔΙΟ με core/license_manager.py ──────────────────────────
-SECRET_KEY = "CHANGE_THIS_TO_YOUR_SECRET_KEY"
+SECRET_KEY = "3a6e515a424558f4fae7173cf9b250ef2443d2783d8ea277b9e106b8cea15998"
 LOG_FILE = os.path.join(os.path.dirname(__file__), "licenses.csv")
 LIFETIME_EXPIRES = "9999-12-31"
 # ─────────────────────────────────────────────────────────────────────────────

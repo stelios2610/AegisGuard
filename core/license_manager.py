@@ -7,7 +7,7 @@ from datetime import datetime
 
 LICENSE_FILE = "/etc/aegisguard/license.key"
 # Must match the SECRET_KEY in generate_license.py — keep private, never commit the real value
-SECRET_KEY = "CHANGE_THIS_TO_YOUR_SECRET_KEY"
+SECRET_KEY = "3a6e515a424558f4fae7173cf9b250ef2443d2783d8ea277b9e106b8cea15998"
 
 _cache = {"status": None, "info": None, "ts": 0}
 
