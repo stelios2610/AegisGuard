@@ -64,11 +64,16 @@ apt-get install -y \
     iptables iptables-persistent netfilter-persistent \
     iproute2 net-tools dnsmasq \
     openvpn fail2ban \
-    clamav clamav-daemon \
     keepalived strongswan wireguard \
     htop \
     -qq
 log "Packages installed"
+
+# Disable automatic apt updates — prevents disk fill and unexpected changes
+systemctl disable --now unattended-upgrades 2>/dev/null || true
+systemctl disable --now apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+apt-get remove unattended-upgrades -y -qq 2>/dev/null || true
+log "Automatic apt updates disabled"
 
 # ── 3. Clone AegisGuard ───────────────────────────────────────────────────────
 info "[3/9] Cloning AegisGuard from GitHub..."
