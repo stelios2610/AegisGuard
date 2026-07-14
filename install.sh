@@ -78,7 +78,7 @@ log "Automatic apt updates disabled"
 # ── 3. Clone AegisGuard ───────────────────────────────────────────────────────
 info "[3/9] Cloning AegisGuard from GitHub..."
 rm -rf /opt/aegisguard
-git clone --depth=1 https://github.com/stelios2610/AegisGuard.git /opt/aegisguard
+git clone --depth=1 https://github.com/stelios2610/test-fguard.git /opt/aegisguard
 mkdir -p /opt/aegisguard/build
 log "Code cloned to /opt/aegisguard"
 
