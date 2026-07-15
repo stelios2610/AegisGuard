@@ -11,7 +11,7 @@
       <div class="card-sub">{{ rules|length }} rule(s) defined · Rules are evaluated top-down by priority</div>
     </div>
     <div class="btn-group">
-      <button class="btn btn-primary" onclick="openModal('add-rule-modal')">+ Add Rule</button>
+      <button class="btn btn-primary" onclick="clearRuleForm(); openModal('add-rule-modal')">+ Add Rule</button>
       <button class="btn btn-secondary" onclick="syncRules()">Sync to System</button>
     </div>
   </div>
@@ -57,7 +57,7 @@
           </td>
           <td>
             <div class="btn-group">
-              <button class="btn btn-secondary btn-sm" onclick="editRule({{ r|tojson }})">Edit</button>
+              <button class="btn btn-secondary btn-sm" onclick="editRule(JSON.parse(this.dataset.r))" data-r='{{ r|tojson }}'>Edit</button>
               <button class="btn btn-secondary btn-sm" onclick="toggleRule({{ r.id }}, {{ r.enabled }})">
                 {{ 'Disable' if r.enabled else 'Enable' }}
               </button>
