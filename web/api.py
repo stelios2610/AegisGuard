@@ -41,6 +41,16 @@ if _IS_LINUX:
     except Exception:
         pass
 
+# Re-apply web filter iptables rules on every startup so they survive reboots.
+# Must run AFTER _ensure_chains() so our DROP rules land at position 1
+# (before the ACCEPT rules that _ensure_chains sets up).
+if _IS_LINUX:
+    try:
+        if database.get_setting("web_filter_enabled", "1") == "1":
+            web_filter.apply_filters()
+    except Exception:
+        pass
+
 # Apply DHCP config to dnsmasq on every startup so fresh installs work
 if _IS_LINUX:
     try:
