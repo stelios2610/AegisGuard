@@ -178,12 +178,12 @@ def _apply_dns_redirect():
             if not ok:
                 run(["iptables", "-t", "nat", "-A", "PREROUTING",
                      "-i", iface, "-p", proto, "--dport", "53", "-j", "REDIRECT", "--to-port", "53"])
-        # Block DNS-over-TLS (port 853) so clients can't bypass via DoT
+        # Block DNS-over-TLS (port 853) — insert at top so it fires before ACCEPT rules
         for proto in ("tcp", "udp"):
             ok, _, _ = run(["iptables", "-C", "FORWARD",
                             "-i", iface, "-p", proto, "--dport", "853", "-j", "DROP"])
             if not ok:
-                run(["iptables", "-A", "FORWARD",
+                run(["iptables", "-I", "FORWARD", "1",
                      "-i", iface, "-p", proto, "--dport", "853", "-j", "DROP"])
 
 
@@ -217,7 +217,7 @@ def _apply_doh_block():
                 ok, _, _ = run(["iptables", "-C", "FORWARD",
                                 "-i", iface, "-p", proto, "-d", ip, "--dport", "443", "-j", "DROP"])
                 if not ok:
-                    run(["iptables", "-A", "FORWARD",
+                    run(["iptables", "-I", "FORWARD", "1",
                          "-i", iface, "-p", proto, "-d", ip, "--dport", "443", "-j", "DROP"])
 
 
@@ -238,7 +238,7 @@ def _apply_quic_block():
         ok, _, _ = run(["iptables", "-C", "FORWARD",
                         "-i", iface, "-p", "udp", "--dport", "443", "-j", "DROP"])
         if not ok:
-            run(["iptables", "-A", "FORWARD",
+            run(["iptables", "-I", "FORWARD", "1",
                  "-i", iface, "-p", "udp", "--dport", "443", "-j", "DROP"])
 
 
