@@ -229,6 +229,25 @@ def _remove_doh_block():
                      "-i", iface, "-p", proto, "-d", ip, "--dport", "443", "-j", "DROP"])
 
 
+# ── QUIC blocking (force HTTP/3 clients back to HTTP/2 so DNS is re-resolved) ─
+# Browsers fall back to TCP:443 (HTTP/2) automatically when UDP:443 is dropped.
+# HTTP/2 requires a fresh DNS lookup → dnsmasq intercepts → blocked domains fail.
+
+def _apply_quic_block():
+    for iface in _get_lan_interfaces():
+        ok, _, _ = run(["iptables", "-C", "FORWARD",
+                        "-i", iface, "-p", "udp", "--dport", "443", "-j", "DROP"])
+        if not ok:
+            run(["iptables", "-A", "FORWARD",
+                 "-i", iface, "-p", "udp", "--dport", "443", "-j", "DROP"])
+
+
+def _remove_quic_block():
+    for iface in _get_lan_interfaces():
+        run(["iptables", "-D", "FORWARD",
+             "-i", iface, "-p", "udp", "--dport", "443", "-j", "DROP"])
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def apply_filters():
@@ -244,7 +263,8 @@ def apply_filters():
         run(["systemctl", "restart", "dnsmasq"])
         _apply_dns_redirect()
         _apply_doh_block()
-        database.add_log("INFO", details=f"Web filter applied: {len(domains)} domains blocked via dnsmasq + DoH blocked")
+        _apply_quic_block()
+        database.add_log("INFO", details=f"Web filter applied: {len(domains)} domains blocked via dnsmasq + DoH/QUIC blocked")
         return ok, msg
 
     ok, msg = _write_hosts_filter(domains)
@@ -259,6 +279,7 @@ def remove_filters():
         _remove_dnsmasq_filter()
         _remove_dns_redirect()
         _remove_doh_block()
+        _remove_quic_block()
         run(["systemctl", "restart", "dnsmasq"])
     current = _read_hosts()
     if current:
