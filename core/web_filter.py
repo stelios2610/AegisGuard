@@ -197,6 +197,38 @@ def _remove_dns_redirect():
                  "-i", iface, "-p", proto, "--dport", "853", "-j", "DROP"])
 
 
+# ── DoH blocking (force DNS-over-HTTPS clients back to plain DNS) ─────────────
+
+# Known DoH provider IPs — blocking port 443 to these forces clients to fall
+# back to plain DNS (port 53), which is then intercepted by the PREROUTING rule.
+_DOH_IPS = [
+    "8.8.8.8", "8.8.4.4",           # Google
+    "1.1.1.1", "1.0.0.1",           # Cloudflare
+    "9.9.9.9", "149.112.112.112",   # Quad9
+    "208.67.222.222", "208.67.220.220",  # OpenDNS
+    "94.140.14.14", "94.140.15.15", # AdGuard
+]
+
+
+def _apply_doh_block():
+    for iface in _get_lan_interfaces():
+        for ip in _DOH_IPS:
+            for proto in ("tcp", "udp"):
+                ok, _, _ = run(["iptables", "-C", "FORWARD",
+                                "-i", iface, "-p", proto, "-d", ip, "--dport", "443", "-j", "DROP"])
+                if not ok:
+                    run(["iptables", "-A", "FORWARD",
+                         "-i", iface, "-p", proto, "-d", ip, "--dport", "443", "-j", "DROP"])
+
+
+def _remove_doh_block():
+    for iface in _get_lan_interfaces():
+        for ip in _DOH_IPS:
+            for proto in ("tcp", "udp"):
+                run(["iptables", "-D", "FORWARD",
+                     "-i", iface, "-p", proto, "-d", ip, "--dport", "443", "-j", "DROP"])
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def apply_filters():
@@ -211,7 +243,8 @@ def apply_filters():
         _write_hosts_filter(domains)
         run(["systemctl", "restart", "dnsmasq"])
         _apply_dns_redirect()
-        database.add_log("INFO", details=f"Web filter applied: {len(domains)} domains blocked via dnsmasq")
+        _apply_doh_block()
+        database.add_log("INFO", details=f"Web filter applied: {len(domains)} domains blocked via dnsmasq + DoH blocked")
         return ok, msg
 
     ok, msg = _write_hosts_filter(domains)
@@ -225,6 +258,7 @@ def remove_filters():
     if IS_LINUX:
         _remove_dnsmasq_filter()
         _remove_dns_redirect()
+        _remove_doh_block()
         run(["systemctl", "restart", "dnsmasq"])
     current = _read_hosts()
     if current:
