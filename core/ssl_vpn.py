@@ -14,6 +14,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 PKI_DIR = os.path.join(BASE_DIR, "pki", "ssl-vpn")
 CONFIGS_DIR = os.path.join(BASE_DIR, "vpn-configs")
 SERVER_CONF = os.path.join(BASE_DIR, "ssl-vpn-server.conf")
+SYSTEMD_CONF = "/etc/openvpn/server/server.conf"
 
 _server_process = None
 _server_status = "Stopped"
@@ -143,7 +144,24 @@ verb 3
     try:
         with open(SERVER_CONF, "w") as f:
             f.write(conf)
+        if IS_LINUX:
+            os.makedirs(os.path.dirname(SYSTEMD_CONF), exist_ok=True)
+            shutil.copy2(SERVER_CONF, SYSTEMD_CONF)
         return True, SERVER_CONF
+    except Exception as e:
+        return False, str(e)
+
+
+def reload_systemd_server():
+    """Restart the systemd-managed OpenVPN server to apply config changes."""
+    if not IS_LINUX:
+        return True, "Not Linux"
+    try:
+        subprocess.run(
+            ["systemctl", "restart", "openvpn-server@server"],
+            timeout=15, check=True, capture_output=True
+        )
+        return True, "OpenVPN restarted"
     except Exception as e:
         return False, str(e)
 

@@ -587,7 +587,7 @@ async function saveSSLConfig() {
     tls_version: document.getElementById('ssl-tls').value,
     redirect_gateway: document.getElementById('ssl-redirect').checked ? 1 : 0,
   });
-  toast('Config saved', 'success');
+  toast('Config saved & VPN restarted', 'success');
 }
 // ── Public IP + OpenVPN Server ─────────────────────────────────────────────
 function _handleExpired() {
