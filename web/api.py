@@ -25,6 +25,7 @@ from core.ipsec_manager import (create_ipsec_tunnel, remove_ipsec_tunnel,
                                  get_ipsec_tunnels, get_ipsec_sa, generate_psk)
 from core.mfa import hash_password
 from core import license_manager
+from core import updater
 
 database.initialize()
 ensure_default_admin()
@@ -78,6 +79,9 @@ def _log_pruner():
             pass
 
 _threading.Thread(target=_log_pruner, daemon=True).start()
+
+# ── Daily update checker ──────────────────────────────────────────────────────
+updater.start_daily_check()
 
 # ── License enforcement — unapply rules when license is not active ────────────
 def _license_enforcer():
@@ -207,6 +211,7 @@ def _ctx(request, **kw):
         "lic_days": lic_info.get("days_remaining", 0),
         "lic_customer": lic_info.get("customer", ""),
         "lic_expires": lic_info.get("expires", ""),
+        "update_available": updater.get_status().get("available", False),
         **kw
     })
 
@@ -395,6 +400,33 @@ async def settings_page(request: Request):
 async def proxies_page(request: Request):
     return _ctx(request, template="proxies.html",
                 proxy_rules=database.get_proxy_rules())
+
+@app.get("/updates", response_class=HTMLResponse)
+async def updates_page(request: Request):
+    return _ctx(request, template="updates.html",
+                local_version=updater.get_local_version(),
+                licensed=license_manager.is_licensed(),
+                status=updater.get_status())
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REST API — Updates
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/update/check")
+async def api_update_check():
+    st = updater.check_for_update()
+    return st
+
+@app.post("/api/update/download")
+async def api_update_download():
+    ok, msg = updater.download_update()
+    return {"status": "ok" if ok else "error", "message": msg}
+
+@app.post("/api/update/apply")
+async def api_update_apply():
+    ok, msg = updater.apply_update()
+    return {"status": "ok" if ok else "error", "message": msg}
 
 
 # ══════════════════════════════════════════════════════════════════════════════

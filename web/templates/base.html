@@ -201,6 +201,10 @@
       <a href="/settings#email" class="nav-item {% if active=='settings-email' %}active{% endif %}">
         <span class="nav-dot"></span> Notifications
       </a>
+      <a href="/updates" class="nav-item {% if active=='updates' %}active{% endif %}" style="display:flex;justify-content:space-between;align-items:center">
+        <span><span class="nav-dot"></span> Updates</span>
+        {% if update_available %}<span style="background:var(--success);color:#fff;font-size:9px;padding:1px 5px;border-radius:8px;font-weight:700">NEW</span>{% endif %}
+      </a>
     </div>
   </div>
 
