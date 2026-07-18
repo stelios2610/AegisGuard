@@ -1,4 +1,4 @@
-"""SSL VPN (Mobile VPN with SSL) - OpenVPN server management.
+﻿"""SSL VPN (Mobile VPN with SSL) - OpenVPN server management.
 Auto-generates PKI, manages users, generates per-user .ovpn configs."""
 import os
 import subprocess
@@ -90,6 +90,8 @@ def write_server_config():
         f'push "route {r["network"]} {r["netmask"]}"\n'
         for r in _routes if r.get("enabled")
     )
+    _dns_domain = cfg.get("dns_domain", "").strip()
+    _push_domain = f'push "dhcp-option DOMAIN {_dns_domain}"\n' if _dns_domain else ""
 
     conf = f"""# FGUARD UTC SSL VPN Server
 # Generated: {datetime.now().isoformat()}
@@ -110,6 +112,7 @@ key-direction 0
 server {subnet} {netmask}
 {_push_redirect}{_push_routes}push "dhcp-option DNS {cfg.get('dns1','1.1.1.1')}"
 push "dhcp-option DNS {cfg.get('dns2','8.8.8.8')}"
+{_push_domain}
 
 # Security
 cipher {cipher}

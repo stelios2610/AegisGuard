@@ -74,6 +74,8 @@
           <input class="form-control" id="ssl-subnet" value="{{ ssl_config.server_subnet if ssl_config else '10.8.0.0' }}"></div>
         <div class="form-group"><label class="form-label">DNS</label>
           <input class="form-control" id="ssl-dns1" value="{{ ssl_config.dns1 if ssl_config else '1.1.1.1' }}"></div>
+        <div class="form-group"><label class="form-label">DNS Domain</label>
+          <input class="form-control" id="ssl-dns-domain" placeholder="e.g. STELIOS" value="{{ ssl_config.dns_domain if ssl_config and ssl_config.dns_domain else '' }}"></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label class="form-label">Cipher</label>
@@ -565,6 +567,7 @@ async function initSSLVPN() {
       proto: document.getElementById('ssl-proto').value,
       server_subnet: document.getElementById('ssl-subnet').value,
       dns1: document.getElementById('ssl-dns1').value,
+      dns_domain: document.getElementById('ssl-dns-domain').value,
     });
     toast(r.message||'Done', r.status==='ok'?'success':'error');
     if (r.status==='ok') setTimeout(() => location.reload(), 1500);
@@ -578,6 +581,7 @@ async function saveSSLConfig() {
     protocol: document.getElementById('ssl-proto').value,
     server_subnet: document.getElementById('ssl-subnet').value,
     dns1: document.getElementById('ssl-dns1').value,
+    dns_domain: document.getElementById('ssl-dns-domain').value,
     cipher: document.getElementById('ssl-cipher').value,
     auth: document.getElementById('ssl-auth').value,
     tls_version: document.getElementById('ssl-tls').value,

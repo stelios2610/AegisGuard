@@ -579,6 +579,12 @@ def initialize():
         )
     """)
 
+    # ── SSL VPN schema migrations ─────────────────────────────────────────────
+    try:
+        c.execute("ALTER TABLE ssl_vpn_config ADD COLUMN dns_domain TEXT DEFAULT ''")
+    except Exception:
+        pass
+
     # ── Default SSL VPN config row ────────────────────────────────────────────
     c.execute("INSERT OR IGNORE INTO ssl_vpn_config (id, updated_at) VALUES (1, ?)",
               (datetime.now().isoformat(),))
