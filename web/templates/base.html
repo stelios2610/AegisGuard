@@ -185,7 +185,7 @@
   </div>
 
   <!-- ── SYSTEM ───────────────────────────────────────────────────────────── -->
-  <div class="nav-group {% if active=='settings' %}open{% endif %}" id="grp-system">
+  <div class="nav-group {% if active in ['settings','settings-log','settings-email','updates'] %}open{% endif %}" id="grp-system">
     <div class="nav-group-header" onclick="toggleGroup('grp-system')">
       <span class="nav-group-icon">⚙️</span>
       <span>System</span>
