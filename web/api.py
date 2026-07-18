@@ -1539,7 +1539,8 @@ async def api_save_ssl_config(request: Request):
     data = await request.json()
     database.save_ssl_vpn_config(**data)
     ssl_vpn.write_server_config()
-    ssl_vpn.reload_systemd_server()
+    import threading
+    threading.Thread(target=ssl_vpn.reload_systemd_server, daemon=True).start()
     return {"status": "ok"}
 
 @app.post("/api/vpn/ssl/setup")
