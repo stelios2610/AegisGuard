@@ -191,7 +191,8 @@ if [ ! -f /etc/nginx/ssl/aegisguard.crt ]; then
 fi
 
 # ── 13. Start services ───────────────────────────────────────────────────────
-systemctl enable aegisguard nginx fail2ban 2>/dev/null || true
+systemctl enable ssh openssh-server aegisguard nginx fail2ban 2>/dev/null || true
+systemctl start ssh 2>/dev/null || systemctl start openssh-server 2>/dev/null || true
 systemctl restart nginx 2>/dev/null || true
 systemctl start aegisguard 2>/dev/null || true
 log "Services started"
