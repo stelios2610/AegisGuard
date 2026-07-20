@@ -244,6 +244,7 @@ def start_server():
 
     if IS_LINUX:
         write_auth_script()
+        apply_vpn_internet_nat()
 
     exe_path = database.get_setting("vpn_openvpn_path", "openvpn")
     try:
@@ -299,6 +300,40 @@ def get_server_status():
 
 def _netmask_to_cidr(netmask: str) -> int:
     return sum(bin(int(x)).count('1') for x in netmask.split('.'))
+
+
+def _get_wan_if() -> str:
+    """Detect WAN interface via default route."""
+    try:
+        result = subprocess.run(
+            ["ip", "route", "get", "8.8.8.8"],
+            capture_output=True, text=True, timeout=3
+        )
+        parts = result.stdout.split()
+        if "dev" in parts:
+            return parts[parts.index("dev") + 1]
+    except Exception:
+        pass
+    return "eth0"
+
+
+def apply_vpn_internet_nat():
+    """Ensure VPN clients can reach the internet when redirect-gateway is active.
+    Adds FORWARD + MASQUERADE rules for tun0 → WAN. Safe to call multiple times."""
+    if not IS_LINUX:
+        return
+    wan_if = _get_wan_if()
+    vpn_net = _vpn_cidr()
+    # Remove first (idempotent), then re-add
+    run(["iptables", "-D", "FORWARD", "-i", "tun0", "-o", wan_if, "-j", "ACCEPT"])
+    run(["iptables", "-D", "FORWARD", "-i", wan_if, "-o", "tun0",
+         "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"])
+    run(["iptables", "-t", "nat", "-D", "POSTROUTING", "-s", vpn_net, "-o", wan_if, "-j", "MASQUERADE"])
+    run(["iptables", "-I", "FORWARD", "1", "-i", "tun0", "-o", wan_if, "-j", "ACCEPT"])
+    run(["iptables", "-I", "FORWARD", "2", "-i", wan_if, "-o", "tun0",
+         "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"])
+    run(["iptables", "-t", "nat", "-A", "POSTROUTING", "-s", vpn_net, "-o", wan_if, "-j", "MASQUERADE"])
+    run(["netfilter-persistent", "save"])
 
 
 def _get_lan_ip() -> str:

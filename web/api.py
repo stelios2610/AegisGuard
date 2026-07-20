@@ -66,6 +66,15 @@ if _IS_LINUX:
     except Exception:
         pass
 
+# Re-apply SSL VPN internet NAT rules on startup (needed on new servers)
+if _IS_LINUX:
+    try:
+        _ssl_cfg = database.get_ssl_vpn_config()
+        if _ssl_cfg and _ssl_cfg.get("redirect_gateway", 1) and ssl_vpn.is_pki_initialized():
+            ssl_vpn.apply_vpn_internet_nat()
+    except Exception:
+        pass
+
 # ── Background log pruning (every hour, 2 GB limit) ──────────────────────────
 import threading as _threading
 
