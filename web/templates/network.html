@@ -254,7 +254,7 @@
         </div>
         <div style="display:flex;gap:8px;align-items:center">
           <span class="badge badge-{{ 'allow' if dc.enabled else 'disabled' }}">{{ 'Enabled' if dc.enabled else 'Disabled' }}</span>
-          <button class="btn btn-secondary btn-sm" onclick="editDhcp({{ dc|tojson }})">Edit</button>
+          <button class="btn btn-secondary btn-sm" onclick="editDhcp(JSON.parse(this.dataset.dc))" data-dc='{{ dc|tojson }}'>Edit</button>
           <button class="btn btn-danger btn-sm" onclick="deleteDhcp('{{ dc.interface }}')">✕</button>
         </div>
       </div>
