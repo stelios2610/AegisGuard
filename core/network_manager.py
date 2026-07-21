@@ -481,7 +481,7 @@ def get_connection_tracking():
 # ─── DHCP Relay ───────────────────────────────────────────────────────────────
 
 def apply_dhcp_relay():
-    """Enable or disable DHCP relay using isc-dhcp-relay (dhcrelay)."""
+    """Enable or disable DHCP relay using isc-dhcp-relay systemd service."""
     if not IS_LINUX:
         return False, "DHCP Relay is Linux only"
 
@@ -490,10 +490,11 @@ def apply_dhcp_relay():
     server_ip = cfg.get("server_ip", "").strip()
     interfaces = cfg.get("interfaces", "").strip()
 
-    # Stop any running dhcrelay
+    run(["systemctl", "stop", "isc-dhcp-relay"])
     run(["pkill", "-f", "dhcrelay"])
 
     if not enabled:
+        run(["systemctl", "disable", "isc-dhcp-relay"])
         return True, "DHCP Relay stopped"
 
     if not server_ip:
@@ -501,22 +502,31 @@ def apply_dhcp_relay():
     if not interfaces:
         return False, "DHCP Relay: no interfaces configured"
 
-    # Ensure isc-dhcp-relay is installed
+    # Install package non-interactively if missing
     ok, _, _ = run(["which", "dhcrelay"])
     if not ok:
-        run(["apt-get", "install", "-y", "-qq", "isc-dhcp-relay"])
+        import os, subprocess as _sp
+        env = os.environ.copy()
+        env["DEBIAN_FRONTEND"] = "noninteractive"
+        _sp.run(
+            ["apt-get", "install", "-y", "-qq", "isc-dhcp-relay"],
+            env=env, capture_output=True, timeout=120
+        )
 
-    # Build dhcrelay command
-    iface_args = []
-    for iface in interfaces.split(","):
-        iface = iface.strip()
-        if iface:
-            iface_args += ["-i", iface]
+    # Write /etc/default/isc-dhcp-relay (read by the systemd unit)
+    iface_str = " ".join(i.strip() for i in interfaces.split(",") if i.strip())
+    relay_defaults = f'SERVERS="{server_ip}"\nINTERFACES="{iface_str}"\nOPTIONS=""\n'
+    try:
+        with open("/etc/default/isc-dhcp-relay", "w") as f:
+            f.write(relay_defaults)
+    except Exception as e:
+        return False, f"Cannot write relay config: {e}"
 
-    cmd = ["dhcrelay", "-4"] + iface_args + [server_ip]
-    ok, out, err = run(cmd)
+    run(["systemctl", "enable", "isc-dhcp-relay"])
+    ok, _, err = run(["systemctl", "restart", "isc-dhcp-relay"])
     if not ok:
-        return False, f"dhcrelay failed: {err}"
+        _, status, _ = run(["systemctl", "status", "isc-dhcp-relay", "--no-pager", "-l"])
+        return False, f"isc-dhcp-relay failed: {err or status[:300]}"
 
     database.add_log("INFO", details=f"DHCP Relay started → {server_ip} on {interfaces}")
     return True, f"DHCP Relay active → {server_ip} on {interfaces}"
@@ -524,7 +534,9 @@ def apply_dhcp_relay():
 
 def get_dhcp_relay_status():
     """Check if dhcrelay is running."""
-    ok, out, _ = run(["pgrep", "-a", "dhcrelay"])
+    ok, out, _ = run(["systemctl", "is-active", "isc-dhcp-relay"])
+    if not ok:
+        ok, out, _ = run(["pgrep", "-a", "dhcrelay"])
     return {"running": ok, "process": out.strip() if ok else ""}
 
 
