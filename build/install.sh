@@ -110,7 +110,16 @@ done
 hostnamectl set-hostname aegisguard
 echo "127.0.1.1 aegisguard" >> /etc/hosts
 
-# ── 10. Banner ────────────────────────────────────────────────────────────────
+# ── 10. WireGuard DDNS watchdog ──────────────────────────────────────────────
+log "Installing WireGuard DDNS watchdog..."
+install -m 755 "${INSTALL_DIR}/build/wg-watchdog.sh" /usr/local/sbin/wg-watchdog
+cp "${INSTALL_DIR}/build/wg-watchdog.service" /etc/systemd/system/
+cp "${INSTALL_DIR}/build/wg-watchdog.timer"   /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now wg-watchdog.timer
+log "WireGuard watchdog installed"
+
+# ── 11. Banner ────────────────────────────────────────────────────────────────
 cat > /etc/motd << 'EOF'
 
   ╔══════════════════════════════════════════════════════╗
