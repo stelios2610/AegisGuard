@@ -21,12 +21,12 @@ WAN_IFACE    = None          # auto-detected from DB
 COMMENT_TAG  = "aegis_geoblock"
 
 # Ports that must stay open regardless of country (VPN access from abroad)
+# NOTE: IPSec (500/4500) intentionally excluded — IPSec runs over WireGuard,
+# not directly over the internet. Exposing 500/4500 attracts IKE scanners.
 _VPN_PORTS = [
     ("udp", "1194"),   # OpenVPN
     ("tcp", "1194"),   # OpenVPN TCP
     ("udp", "51820"),  # WireGuard
-    ("udp", "500"),    # IPSec IKE
-    ("udp", "4500"),   # IPSec NAT-T
 ]
 
 # Country CIDR source: ipdeny.com (free, no key needed)
