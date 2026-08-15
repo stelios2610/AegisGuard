@@ -319,13 +319,14 @@ systemctl start aegisguard
 sleep 3
 
 # MOTD
-cat > /etc/motd << 'MOTD'
+FGUARD_VER=$(python3 -c "import json; print(json.load(open('/opt/aegisguard/version.json'))['version'])" 2>/dev/null || echo "1.0")
+cat > /etc/motd << MOTD
 
   ╔══════════════════════════════════════════════════════╗
-  ║           FGUARD UTC Network Security v1.0           ║
+  ║      FGUARD UTC Network Security v${FGUARD_VER}           ║
   ║                                                      ║
   ║  Web UI:  https://10.0.0.1:8080  (LAN only)          ║
-  ║  SSH:     ssh admin@10.0.0.1     (LAN only)          ║
+  ║  SSH:     ssh stelios@10.0.0.1   (LAN only)          ║
   ║                                                      ║
   ║  Default login: admin / admin                        ║
   ║  Change password after first login!                  ║
