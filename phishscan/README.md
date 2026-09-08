@@ -10,24 +10,23 @@
 
 Αυτό περνάει τα φίλτρα γιατί το domain είναι της Microsoft. Το PhishScan κοιτάει το **όνομα του αρχείου**, κρυφούς χαρακτήρες, και αν το κείμενο του link ταιριάζει με τον πραγματικό προορισμό.
 
-## Εγκατάσταση στον υπολογιστή
+## Εγκατάσταση στον υπολογιστή (Windows)
 
-Χρειάζεται μόνο **Python 3.9+** (χωρίς extra πακέτα).
+Διπλό κλικ στο **`PhishScan-Setup.bat`**.
 
-### Windows
+- Δεν χρειάζεται administrator
+- Αντιγράφει το πρόγραμμα στο `%LOCALAPPDATA%\Programs\PhishScan`
+- Φτιάχνει συντόμευση στην επιφάνεια εργασίας και στο Start Menu
+- Απεγκατάσταση από Start Menu → PhishScan → Απεγκατάσταση, ή από Apps & Features
 
-1. Εγκαταστήστε Python από https://www.python.org/downloads/
-   - Στο installer τσεκάρετε **Add python.exe to PATH**
-2. Αντιγράψτε τον φάκελο `phishscan` όπου θέλετε (π.χ. `C:\Tools\phishscan`)
-3. Διπλό κλικ στο **`install.bat`** — φτιάχνει συντόμευση στην επιφάνεια εργασίας
-4. Ή διπλό κλικ στο **`PhishScan.bat`** για να ανοίξει κατευθείαν το παράθυρο
+Αν δεν υπάρχει Python 3, ο installer προσπαθεί `winget`. Αλλιώς εγκαταστήστε Python από https://www.python.org/downloads/ (τσεκάρετε **Add python.exe to PATH**) και ξανατρέξτε το Setup.
 
-### Γραμμή εντολών
+### Χωρίς installer / γραμμή εντολών
 
 ```bat
+python phishscan.py --gui
 python phishscan.py "https://…"
 python phishscan.py email.eml
-python phishscan.py --gui
 ```
 
 Κωδικοί εξόδου: `0` καθαρό, `1` ύποπτο, `2` phishing.
