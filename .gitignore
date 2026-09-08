@@ -1,6 +1,9 @@
 # Database
 firewall.db
 
+# Runtime-generated data (reputation blocklist, etc.)
+data/
+
 # Python
 __pycache__/
 *.pyc
