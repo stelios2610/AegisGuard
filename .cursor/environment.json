@@ -1,0 +1,17 @@
+{
+  "name": "FGUARD UTC / PhishScan",
+  "install": "bash .cursor/install.sh",
+  "terminals": [
+    {
+      "name": "fguard-web",
+      "command": "source .venv/bin/activate && python -m uvicorn web.api:app --host 0.0.0.0 --port 8080",
+      "description": "FGUARD UTC web management console (FastAPI). Login at http://localhost:8080 with admin / admin."
+    }
+  ],
+  "ports": [
+    {
+      "name": "web console",
+      "port": 8080
+    }
+  ]
+}
