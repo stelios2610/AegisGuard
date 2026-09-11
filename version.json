@@ -1,8 +1,10 @@
 {
-  "version": "1.0.12",
-  "date": "2026-09-06",
+  "version": "1.0.14",
+  "date": "2026-09-12",
   "product": "FGUARD UTC",
   "changelog": [
-    "Monitor: live table of blocked IPs (IPS, DDoS, manual blocklist, recent BLOCK/THREAT logs)"
+    "Fix: DHCP relay to remote AD (VLAN iface, IPSec routes not stolen by WireGuard, dnsmasq must stay up)",
+    "Fix: GeoIP on WAN — persist chain, lock SSH/GUI from internet, drop IPv6 WAN, IKE/WG only from site-to-site peer",
+    "Fix: VLAN apply no longer wipes dnsmasq relay and AD DNS forwards"
   ]
 }

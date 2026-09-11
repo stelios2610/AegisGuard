@@ -444,6 +444,47 @@ def delete_tunnel(tunnel):
     return False, f"Protocol {t} not supported"
 
 
+def prefer_ipsec_routes_over_wireguard():
+    """Stop wg0 from stealing IPSec remote subnets.
+
+    StrongSwan puts 10.16.0.0/24 in table 220 with src 192.168.0.254.
+    If the same prefix is in WireGuard AllowedIPs, main-table uses dead wg0
+    and FGUARD itself cannot relay DHCP or resolve AD — LAN clients still
+    work because their source already matches the IPSec policy.
+    """
+    if not IS_LINUX:
+        return
+    ok, table220, _ = run(["ip", "route", "show", "table", "220"])
+    if not ok or not (table220 or "").strip():
+        return
+    ok, rules, _ = run(["ip", "rule", "list"])
+    if ok and "lookup 220" not in (rules or ""):
+        for line in table220.splitlines():
+            dest = (line.split() or [None])[0]
+            if dest and "/" in dest:
+                run(["ip", "rule", "add", "to", dest, "lookup", "220", "priority", "220"])
+    for line in table220.splitlines():
+        dest = (line.split() or [None])[0]
+        if dest:
+            run(["ip", "route", "del", dest, "dev", "wg0"])
+    # Keep wg0 AllowedIPs from reinstalling the stolen route
+    ipsec_nets = set()
+    for line in table220.splitlines():
+        dest = (line.split() or [None])[0]
+        if dest:
+            ipsec_nets.add(dest)
+    ok, ai, _ = run(["wg", "show", "wg0", "allowed-ips"])
+    if ok and ai:
+        for line in ai.splitlines():
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            peer, nets = parts[0], parts[1:]
+            keep = [n for n in nets if n not in ipsec_nets]
+            if keep != nets and keep:
+                run(["wg", "set", "wg0", "peer", peer, "allowed-ips", ",".join(keep)])
+
+
 def restore_tunnels_on_boot():
     """Called at app startup: re-apply enabled BOV tunnels after power outage / restart."""
     if not IS_LINUX:
@@ -474,6 +515,8 @@ def restore_tunnels_on_boot():
                   if t["type"] == "WireGuard" and t.get("enabled", 1)]
     for t in wg_tunnels:
         apply_wireguard_tunnel(t)
+
+    prefer_ipsec_routes_over_wireguard()
 
 
 def get_tunnel_status(tunnel_id):
