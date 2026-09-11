@@ -383,6 +383,11 @@ def apply_nat_rules():
         else:
             ok, msg = False, f"Unknown NAT type: {r['type']}"
         results.append((r["name"], ok, msg))
+    try:
+        from core.bov_manager import pin_ipsec_nat_rules
+        pin_ipsec_nat_rules()
+    except Exception:
+        pass
     return True, f"Applied {sum(1 for _,ok,_ in results if ok)}/{len(results)} NAT rules"
 
 

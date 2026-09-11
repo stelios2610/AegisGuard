@@ -86,6 +86,89 @@ secrets {{
 """
 
 
+def _vpn_cidr():
+    try:
+        cfg = database.get_ssl_vpn_config() or {}
+        subnet = cfg.get("server_subnet") or "10.8.0.0"
+        netmask = cfg.get("server_netmask") or "255.255.255.0"
+        bits = sum(bin(int(octet)).count("1") for octet in netmask.split("."))
+        return f"{subnet}/{bits}"
+    except Exception:
+        return "10.8.0.0/24"
+
+
+def _lan_ip_for_tunnel(tunnel):
+    gw = (tunnel.get("local_gateway") or "").strip().split("/")[0]
+    if gw:
+        return gw
+    try:
+        from core.ssl_vpn import _get_lan_ip
+        return _get_lan_ip()
+    except Exception:
+        return ""
+
+
+def _reinsert_nat(rule):
+    """Delete then insert at POSTROUTING 1 so the rule stays above MASQUERADE."""
+    run(["iptables", "-t", "nat", "-D", "POSTROUTING"] + rule)
+    run(["iptables", "-t", "nat", "-I", "POSTROUTING", "1"] + rule)
+
+
+def pin_ipsec_nat_rules():
+    """Keep IPsec LAN and SSL VPN traffic ahead of WAN MASQUERADE.
+
+    If MASQUERADE matches first, packets are SNATed to the WAN IP and xfrm
+    selectors (LAN <-> peer LAN) never match. iptables -C is not enough: the
+    exception may already exist *below* MASQUERADE. Always re-insert at top.
+    SSL VPN (10.8.0.0/24) also has ``ip rule pref 210 lookup main`` which
+    sends peer LAN into WireGuard; force table 220 (IPsec) for that dest.
+    """
+    if not IS_LINUX:
+        return
+    tunnels = [
+        t for t in database.get_bov_tunnels()
+        if t.get("enabled", 1) and t.get("type") in ("IKEv2", "IKEv1", "L2TP-IPSec")
+    ]
+    vpn_net = _vpn_cidr()
+    for t in reversed(tunnels):
+        local_ts = (t.get("local_subnets") or "").strip()
+        remote_ts = (t.get("remote_subnets") or "").strip()
+        if not local_ts or not remote_ts:
+            continue
+        lan_ip = _lan_ip_for_tunnel(t)
+
+        run(["ip", "rule", "del", "from", vpn_net, "to", remote_ts,
+             "lookup", "220", "pref", "205"])
+        run(["ip", "rule", "add", "from", vpn_net, "to", remote_ts,
+             "lookup", "220", "pref", "205"])
+
+        if lan_ip:
+            _reinsert_nat([
+                "-s", vpn_net, "-d", remote_ts,
+                "-j", "SNAT", "--to-source", lan_ip,
+            ])
+        _reinsert_nat(["-s", local_ts, "-d", remote_ts, "-j", "RETURN"])
+
+        for spec in (
+            ["-s", remote_ts, "-d", local_ts, "-j", "ACCEPT"],
+            ["-s", local_ts, "-d", remote_ts, "-j", "ACCEPT"],
+            ["-i", "tun0", "-d", remote_ts, "-j", "ACCEPT"],
+            ["-s", remote_ts, "-o", "tun0", "-j", "ACCEPT"],
+        ):
+            run(["iptables", "-D", "FORWARD"] + spec)
+            run(["iptables", "-I", "FORWARD", "1"] + spec)
+
+        run(["iptables", "-D", "INPUT",
+             "-s", remote_ts, "-d", local_ts, "-j", "ACCEPT"])
+        run(["iptables", "-I", "INPUT", "1",
+             "-s", remote_ts, "-d", local_ts, "-j", "ACCEPT"])
+
+    if tunnels:
+        pol = ["-m", "policy", "--dir", "out", "--pol", "ipsec", "-j", "ACCEPT"]
+        run(["iptables", "-t", "nat", "-D", "POSTROUTING"] + pol)
+        run(["iptables", "-t", "nat", "-I", "POSTROUTING", "1"] + pol)
+
+
 def apply_ipsec_tunnels():
     """Write swanctl configs and reload charon (auto-installs if missing)."""
     if not IS_LINUX:
@@ -114,37 +197,9 @@ def apply_ipsec_tunnels():
         run(["systemctl", "restart", "strongswan"])
         ok, out, err = run(["swanctl", "--load-all"])
 
-        # Add iptables rules for IPSec traffic
-        for t in ipsec_tunnels:
-            if not t.get("enabled", 1):
-                continue
-            local_ts = t.get("local_subnets", "").strip()
-            remote_ts = t.get("remote_subnets", "").strip()
-            if not local_ts or not remote_ts:
-                continue
+        pin_ipsec_nat_rules()
 
-            # 1. Skip MASQUERADE for IPSec traffic (NAT breaks xfrm matching)
-            chk, _, _ = run(["iptables", "-t", "nat", "-C", "POSTROUTING",
-                              "-s", local_ts, "-d", remote_ts, "-j", "RETURN"])
-            if not chk:
-                run(["iptables", "-t", "nat", "-I", "POSTROUTING", "1",
-                     "-s", local_ts, "-d", remote_ts, "-j", "RETURN"])
-
-            # 2. Accept decrypted inbound IPSec packets (from remote subnet to us)
-            chk2, _, _ = run(["iptables", "-C", "INPUT",
-                               "-s", remote_ts, "-d", local_ts, "-j", "ACCEPT"])
-            if not chk2:
-                run(["iptables", "-I", "INPUT", "1",
-                     "-s", remote_ts, "-d", local_ts, "-j", "ACCEPT"])
-
-            # 3. Accept forwarded IPSec packets (remote→local direction)
-            chk3, _, _ = run(["iptables", "-C", "FORWARD",
-                               "-s", remote_ts, "-d", local_ts, "-j", "ACCEPT"])
-            if not chk3:
-                run(["iptables", "-I", "FORWARD", "1",
-                     "-s", remote_ts, "-d", local_ts, "-j", "ACCEPT"])
-
-        # 4. Open IKE + NAT-T ports for IPSec negotiation on WAN
+        # Open IKE + NAT-T ports for IPSec negotiation on WAN
         for proto_port in [("udp", "500"), ("udp", "4500")]:
             proto, port = proto_port
             chk_p, _, _ = run(["iptables", "-C", "INPUT",
@@ -412,6 +467,7 @@ def restore_tunnels_on_boot():
                 wrote = True
         if wrote:
             run(["swanctl", "--load-all"])
+        pin_ipsec_nat_rules()
 
     # WireGuard BOV: bring up + enable systemd so they survive future reboots
     wg_tunnels = [t for t in tunnels

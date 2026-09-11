@@ -377,6 +377,11 @@ def apply_vpn_internet_nat():
     run(["iptables", "-I", "FORWARD", "2", "-i", wan_if, "-o", "tun0",
          "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"])
     run(["iptables", "-t", "nat", "-A", "POSTROUTING", "-s", vpn_net, "-o", wan_if, "-j", "MASQUERADE"])
+    try:
+        from core.bov_manager import pin_ipsec_nat_rules
+        pin_ipsec_nat_rules()
+    except Exception:
+        pass
     run(["netfilter-persistent", "save"])
 
 
@@ -402,15 +407,33 @@ def _vpn_cidr() -> str:
 
 
 def apply_push_route_rules(network: str, netmask: str):
-    """Add iptables FORWARD + MASQUERADE rules for a new push route."""
+    """Add iptables FORWARD + NAT rules for a new push route.
+
+    IPsec peer LANs must SNAT to the local LAN IP (not MASQUERADE to WAN)
+    or xfrm selectors will not match.
+    """
     if not IS_LINUX:
         return
     cidr = f"{network}/{_netmask_to_cidr(netmask)}"
     vpn_net = _vpn_cidr()
     run(["iptables", "-I", "FORWARD", "-i", "tun0", "-d", cidr, "-j", "ACCEPT"])
     run(["iptables", "-I", "FORWARD", "-s", cidr, "-o", "tun0", "-j", "ACCEPT"])
-    run(["iptables", "-t", "nat", "-I", "POSTROUTING",
-         "-s", vpn_net, "-d", cidr, "-j", "MASQUERADE"])
+    ipsec_peer = False
+    try:
+        for t in database.get_bov_tunnels():
+            if t.get("enabled", 1) and (t.get("remote_subnets") or "").strip() == cidr:
+                ipsec_peer = True
+                break
+    except Exception:
+        ipsec_peer = False
+    if not ipsec_peer:
+        run(["iptables", "-t", "nat", "-I", "POSTROUTING",
+             "-s", vpn_net, "-d", cidr, "-j", "MASQUERADE"])
+    try:
+        from core.bov_manager import pin_ipsec_nat_rules
+        pin_ipsec_nat_rules()
+    except Exception:
+        pass
     run(["netfilter-persistent", "save"])
 
 
@@ -424,6 +447,10 @@ def remove_push_route_rules(network: str, netmask: str):
     run(["iptables", "-D", "FORWARD", "-s", cidr, "-o", "tun0", "-j", "ACCEPT"])
     run(["iptables", "-t", "nat", "-D", "POSTROUTING",
          "-s", vpn_net, "-d", cidr, "-j", "MASQUERADE"])
+    lan_ip = _get_lan_ip()
+    if lan_ip:
+        run(["iptables", "-t", "nat", "-D", "POSTROUTING",
+             "-s", vpn_net, "-d", cidr, "-j", "SNAT", "--to-source", lan_ip])
     run(["netfilter-persistent", "save"])
 
 

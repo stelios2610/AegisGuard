@@ -119,6 +119,8 @@ case "$STATE" in
         python3 -c "
 import sys; sys.path.insert(0,'/opt/aegisguard')
 from db import database
+from core.bov_manager import pin_ipsec_nat_rules
+pin_ipsec_nat_rules()
 database.add_log('WARN', details='HA: became MASTER')
 " 2>/dev/null
         ;;

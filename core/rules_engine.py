@@ -306,6 +306,11 @@ def ensure_lan_nat_masquerade():
     wan_iface = _detect_wan_iface()
     _setup_linux_forwarding()
     _setup_nat_masquerade(wan_iface)
+    try:
+        from core.bov_manager import pin_ipsec_nat_rules
+        pin_ipsec_nat_rules()
+    except Exception:
+        pass
     run(["netfilter-persistent", "save"])
     database.add_log("INFO", details=f"LAN NAT masquerade ensured on {wan_iface}")
     return True, wan_iface
