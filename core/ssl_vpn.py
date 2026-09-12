@@ -91,21 +91,8 @@ def write_server_config():
         f'push "route {r["network"]} {r["netmask"]}"\n'
         for r in _routes if r.get("enabled", 1)
     )
-    _dns_domain = (cfg.get("dns_domain") or "").strip()
-    if not _dns_domain:
-        try:
-            _dns_domain = (database.get_dns_settings().get("search_domain") or "").strip()
-        except Exception:
-            _dns_domain = ""
-    _push_domain = ""
-    if _dns_domain:
-        _push_domain = (
-            f'push "dhcp-option DOMAIN {_dns_domain}"\n'
-            f'push "dhcp-option DOMAIN-SEARCH {_dns_domain}"\n'
-        )
-
-    _dns1 = (cfg.get("dns1") or "").strip() or "1.1.1.1"
-    _dns2 = (cfg.get("dns2") or "").strip() or "8.8.8.8"
+    _dns_domain = cfg.get("dns_domain", "").strip()
+    _push_domain = f'push "dhcp-option DOMAIN {_dns_domain}"\n' if _dns_domain else ""
 
     conf = f"""# FGUARD UTC SSL VPN Server
 # Generated: {datetime.now().isoformat()}
@@ -124,8 +111,8 @@ key-direction 0
 
 # Network
 server {subnet} {netmask}
-{_push_redirect}{_push_routes}push "dhcp-option DNS {_dns1}"
-push "dhcp-option DNS {_dns2}"
+{_push_redirect}{_push_routes}push "dhcp-option DNS {cfg.get('dns1','1.1.1.1')}"
+push "dhcp-option DNS {cfg.get('dns2','8.8.8.8')}"
 {_push_domain}
 
 # Security
