@@ -1,8 +1,8 @@
 #!/bin/bash
-# AegisGuard Network Setup
+# FGUARD Network Setup
 # Runs automatically after install to configure LAN/WAN
 
-cd /opt/aegisguard
+cd /opt/fguard
 
 WAN_IF=$(ip route | grep default | awk '{print $5}' | head -1)
 LAN_IF=$(ip link | grep -v "$WAN_IF" | grep -v lo | grep 'state UP\|state DOWN' | awk '{print $2}' | tr -d ':' | head -1)
@@ -19,7 +19,7 @@ ip addr add 10.0.0.1/24 dev "$LAN_IF" 2>/dev/null || true
 ip link set "$LAN_IF" up 2>/dev/null || true
 
 # Permanent netplan
-cat > /etc/netplan/60-aegisguard-lan.yaml << EOF
+cat > /etc/netplan/60-fguard-lan.yaml << EOF
 network:
   version: 2
   ethernets:
@@ -82,7 +82,7 @@ netfilter-persistent save 2>/dev/null || true
 
 # Update DB with interface names
 python3 - << PYEOF
-import sys; sys.path.insert(0,'/opt/aegisguard')
+import sys; sys.path.insert(0,'/opt/fguard')
 from db import database
 conn = database.get_connection()
 conn.execute("UPDATE interfaces SET name=? WHERE role='WAN'", ('$WAN_IF',))
@@ -95,7 +95,7 @@ print("DB updated")
 PYEOF
 
 # DHCP server on LAN
-cat > /etc/dnsmasq.d/aegisguard.conf << EOF
+cat > /etc/dnsmasq.d/fguard.conf << EOF
 interface=${LAN_IF}
 bind-interfaces
 dhcp-range=${LAN_IF},10.0.0.100,10.0.0.200,255.255.255.0,24h
@@ -111,12 +111,12 @@ EOF
 systemctl enable dnsmasq 2>/dev/null || true
 systemctl restart dnsmasq 2>/dev/null || true
 
-systemctl restart aegisguard 2>/dev/null || true
+systemctl restart fguard 2>/dev/null || true
 
 # Fail2ban: install filters and jails for SSH + VPN brute force protection
 if command -v fail2ban-client &>/dev/null; then
-    cp /opt/aegisguard/build/fail2ban-filter-aegisguard-vpn.conf /etc/fail2ban/filter.d/aegisguard-vpn.conf 2>/dev/null || true
-    cp /opt/aegisguard/build/fail2ban-aegisguard.conf /etc/fail2ban/jail.d/aegisguard.conf 2>/dev/null || true
+    cp /opt/fguard/build/fail2ban-filter-fguard-vpn.conf /etc/fail2ban/filter.d/fguard-vpn.conf 2>/dev/null || true
+    cp /opt/fguard/build/fail2ban-fguard.conf /etc/fail2ban/jail.d/fguard.conf 2>/dev/null || true
     systemctl enable fail2ban 2>/dev/null || true
     systemctl restart fail2ban 2>/dev/null || true
 fi

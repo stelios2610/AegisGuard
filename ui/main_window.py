@@ -1,4 +1,4 @@
-"""AegisGuard main window."""
+"""FGUARD main window."""
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QListWidget,
     QListWidgetItem, QStackedWidget, QLabel, QStatusBar, QFrame,
@@ -50,7 +50,7 @@ class SidebarLabel(QListWidgetItem):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("AegisGuard - Network Security")
+        self.setWindowTitle("FGUARD - Network Security")
         self.setMinimumSize(1280, 800)
         self.resize(1440, 900)
         self._build_ui()
@@ -84,7 +84,7 @@ class MainWindow(QMainWindow):
 
         shield = QLabel("🛡")
         shield.setStyleSheet("font-size: 24px;")
-        logo_text = QLabel("AegisGuard")
+        logo_text = QLabel("FGUARD")
         logo_text.setStyleSheet("font-size: 16px; font-weight: bold; color: #c0392b; letter-spacing: 1px;")
         logo_layout.addWidget(shield)
         logo_layout.addWidget(logo_text)
@@ -159,7 +159,7 @@ class MainWindow(QMainWindow):
         self.sb_conn_label = QLabel("Connections: 0")
         self.sb_blocked_label = QLabel("Blocked Today: 0")
         self.sb_threats_label = QLabel("Threats: 0")
-        self.sb_version = QLabel("AegisGuard v1.0.0")
+        self.sb_version = QLabel("FGUARD v1.0.0")
         for lbl in (self.sb_conn_label, self.sb_blocked_label,
                     self.sb_threats_label, self.sb_version):
             sb.addWidget(lbl)

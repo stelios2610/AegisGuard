@@ -35,7 +35,7 @@ class SettingsPanel(QWidget):
         fw_group = QGroupBox("Firewall")
         fw_form = QFormLayout(fw_group)
 
-        self.fw_enabled = QCheckBox("Enable AegisGuard firewall engine")
+        self.fw_enabled = QCheckBox("Enable FGUARD firewall engine")
         self.default_policy = QComboBox()
         self.default_policy.addItems(["ALLOW", "BLOCK"])
         self.log_blocked = QCheckBox("Log blocked connections")
@@ -136,7 +136,7 @@ class SettingsPanel(QWidget):
         al = QVBoxLayout(about_tab)
         al.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        logo = QLabel("🛡 AegisGuard")
+        logo = QLabel("🛡 FGUARD")
         logo.setStyleSheet("font-size: 36px; font-weight: bold; color: #c0392b;")
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -145,7 +145,7 @@ class SettingsPanel(QWidget):
         ver.setObjectName("subheading")
 
         desc = QLabel(
-            "AegisGuard is a comprehensive network security solution\n"
+            "FGUARD is a comprehensive network security solution\n"
             "featuring Firewall, Application Control, Web Filter,\n"
             "IPS, VPN (OpenVPN, WireGuard, Site-to-Site IPSec),\n"
             "and real-time network monitoring."

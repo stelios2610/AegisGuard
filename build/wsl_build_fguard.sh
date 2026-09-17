@@ -1,5 +1,5 @@
 #!/bin/bash
-# FGUARD UTC ISO Builder — Offline (WSL2)
+# FGUARD ISO Builder — Offline (WSL2)
 # App code + Python wheels embedded in ISO — no internet needed during install.
 #
 # FIX vs old scripts: late-commands copy files directly to /target/ WITHOUT
@@ -9,7 +9,7 @@
 set -e
 
 ISO='/mnt/c/Users/stelakis-pc/Downloads/ubuntu-26.04-live-server-amd64.iso'
-OUTPUT='/mnt/c/Users/stelakis-pc/Documents/FGUARD-UTC-1.0.iso'
+OUTPUT='/mnt/c/Users/stelakis-pc/Documents/FGUARD-1.0.iso'
 WORK='/tmp/fguard-iso'
 SRC_WIN='/mnt/c/Users/stelakis-pc/Projects/firewall-gui'
 SRC="$WORK/src"
@@ -24,7 +24,7 @@ err()  { echo -e "${R}[✗]${NC} $*"; exit 1; }
 
 echo ""
 echo -e "${C}  ╔══════════════════════════════════════════════╗${NC}"
-echo -e "${C}  ║   FGUARD UTC ISO Builder — Offline           ║${NC}"
+echo -e "${C}  ║   FGUARD ISO Builder — Offline           ║${NC}"
 echo -e "${C}  ║   App + wheels embedded — no internet needed ║${NC}"
 echo -e "${C}  ╚══════════════════════════════════════════════╝${NC}"
 echo ""
@@ -54,12 +54,12 @@ for f in "$CUSTOM/boot/grub/grub.cfg" "$CUSTOM/grub/grub.cfg"; do
 set default=0
 set timeout=5
 
-menuentry "Install FGUARD UTC Network Security" --class ubuntu --class os {
+menuentry "Install FGUARD Network Security" --class ubuntu --class os {
     set gfxpayload=keep
     linux   /casper/vmlinuz quiet autoinstall ds=nocloud;s=/cdrom/nocloud/ ---
     initrd  /casper/initrd
 }
-menuentry "Install FGUARD UTC (verbose — shows progress)" --class ubuntu {
+menuentry "Install FGUARD (verbose — shows progress)" --class ubuntu {
     set gfxpayload=keep
     linux   /casper/vmlinuz autoinstall ds=nocloud;s=/cdrom/nocloud/ ---
     initrd  /casper/initrd
@@ -139,32 +139,32 @@ autoinstall:
       expire: false
   late-commands:
     # Copy FGUARD app + wheels directly to /target (no chroot — /cdrom accessible here)
-    - mkdir -p /target/opt/aegisguard /target/opt/fguard-wheels /target/etc/aegisguard
-    - cp -r /cdrom/fguard_app/. /target/opt/aegisguard/
+    - mkdir -p /target/opt/fguard /target/opt/fguard-wheels /target/etc/fguard
+    - cp -r /cdrom/fguard_app/. /target/opt/fguard/
     - cp -r /cdrom/fguard_wheels/. /target/opt/fguard-wheels/
     # nginx config
     - mkdir -p /target/etc/nginx/sites-available /target/etc/nginx/sites-enabled
-    - cp /cdrom/server-configs/nginx-aegisguard.conf /target/etc/nginx/sites-available/aegisguard
-    - ln -sf /etc/nginx/sites-available/aegisguard /target/etc/nginx/sites-enabled/aegisguard
+    - cp /cdrom/server-configs/nginx-fguard.conf /target/etc/nginx/sites-available/fguard
+    - ln -sf /etc/nginx/sites-available/fguard /target/etc/nginx/sites-enabled/fguard
     - rm -f /target/etc/nginx/sites-enabled/default
     # systemd services
-    - cp /cdrom/server-configs/aegisguard.service /target/etc/systemd/system/aegisguard.service
-    - cp /cdrom/server-configs/aegisguard-firstboot.service /target/etc/systemd/system/aegisguard-firstboot.service
+    - cp /cdrom/server-configs/fguard.service /target/etc/systemd/system/fguard.service
+    - cp /cdrom/server-configs/fguard-firstboot.service /target/etc/systemd/system/fguard-firstboot.service
     # first-boot.sh (does venv + packages + services on first reboot)
-    - mkdir -p /target/opt/aegisguard/build
-    - cp /cdrom/server-configs/first-boot.sh /target/opt/aegisguard/build/first-boot.sh
-    - chmod +x /target/opt/aegisguard/build/first-boot.sh
+    - mkdir -p /target/opt/fguard/build
+    - cp /cdrom/server-configs/first-boot.sh /target/opt/fguard/build/first-boot.sh
+    - chmod +x /target/opt/fguard/build/first-boot.sh
     # Enable firstboot service via symlink (no systemctl needed)
     - mkdir -p /target/etc/systemd/system/multi-user.target.wants
-    - ln -sf /etc/systemd/system/aegisguard-firstboot.service /target/etc/systemd/system/multi-user.target.wants/aegisguard-firstboot.service
+    - ln -sf /etc/systemd/system/fguard-firstboot.service /target/etc/systemd/system/multi-user.target.wants/fguard-firstboot.service
     # VPN auth scripts
-    - cp /cdrom/server-configs/vpn-auth.sh /target/etc/aegisguard/vpn-auth.sh
-    - cp /cdrom/server-configs/vpn_auth_check.py /target/etc/aegisguard/vpn_auth_check.py
-    - chmod +x /target/etc/aegisguard/vpn-auth.sh /target/etc/aegisguard/vpn_auth_check.py
+    - cp /cdrom/server-configs/vpn-auth.sh /target/etc/fguard/vpn-auth.sh
+    - cp /cdrom/server-configs/vpn_auth_check.py /target/etc/fguard/vpn_auth_check.py
+    - chmod +x /target/etc/fguard/vpn-auth.sh /target/etc/fguard/vpn_auth_check.py
     # fail2ban
     - mkdir -p /target/etc/fail2ban/jail.d /target/etc/fail2ban/filter.d
-    - cp /cdrom/server-configs/fail2ban-jail-aegisguard.conf /target/etc/fail2ban/jail.d/aegisguard.conf
-    - cp /cdrom/server-configs/fail2ban-filter-aegisguard-vpn.conf /target/etc/fail2ban/filter.d/aegisguard-vpn.conf
+    - cp /cdrom/server-configs/fail2ban-jail-fguard.conf /target/etc/fail2ban/jail.d/fguard.conf
+    - cp /cdrom/server-configs/fail2ban-filter-fguard-vpn.conf /target/etc/fail2ban/filter.d/fguard-vpn.conf
     # Disable automatic apt updates (caused ClamAV disk-fill incident)
     - curtin in-target --target=/target -- systemctl disable apt-daily.timer apt-daily-upgrade.timer apt-daily.service apt-daily-upgrade.service
     - curtin in-target --target=/target -- apt-get remove --purge -y unattended-upgrades
@@ -189,7 +189,7 @@ rsync -a --delete \
     --exclude='*.log' \
     --exclude='*.iso' \
     --exclude='venv' \
-    --exclude='aegisguard.db' \
+    --exclude='fguard.db' \
     --exclude='Documents' \
     "$SRC_WIN/" "$CUSTOM/fguard_app/"
 
@@ -257,7 +257,7 @@ fi
 [ -z "$EFI" ] && err "EFI boot image not found in ISO"
 
 xorriso -as mkisofs \
-    -r -V "FGUARD-UTC-1.0" \
+    -r -V "FGUARD-1.0" \
     --grub2-mbr "$MBR" \
     -partition_offset 16 \
     --mbr-force-bootable \
@@ -278,9 +278,9 @@ SIZE=$(du -sh "$OUTPUT" 2>/dev/null | cut -f1 || echo "?")
 
 echo ""
 echo -e "${G}  ╔══════════════════════════════════════════════╗${NC}"
-echo -e "${G}  ║   FGUARD UTC ISO built successfully!         ║${NC}"
+echo -e "${G}  ║   FGUARD ISO built successfully!         ║${NC}"
 echo -e "${G}  ║                                              ║${NC}"
-echo -e "${G}  ║   File: Documents/FGUARD-UTC-1.0.iso         ║${NC}"
+echo -e "${G}  ║   File: Documents/FGUARD-1.0.iso         ║${NC}"
 echo -e "${G}  ║   Size: ${SIZE}                                  ║${NC}"
 echo -e "${G}  ║                                              ║${NC}"
 echo -e "${G}  ║   Boot → Ubuntu installs → reboot:           ║${NC}"

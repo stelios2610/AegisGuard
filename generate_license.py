@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FGUARD UTC License Generator
+FGUARD License Generator
 Run on YOUR PC to generate license keys for customers.
 NEVER share this file or commit it with the real SECRET_KEY.
 """
@@ -45,7 +45,7 @@ def save_to_log(mac, customer, expires, key):
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("  FGUARD UTC — License Generator")
+    print("  FGUARD — License Generator")
     print("=" * 60)
 
     mac = input("\nMAC address συσκευής (π.χ. AA:BB:CC:DD:EE:FF): ").strip()
@@ -69,7 +69,7 @@ if __name__ == "__main__":
     print(f"  {key}")
     print("=" * 60)
     print("\n  Εντολές εγκατάστασης στον server (SSH):")
-    print(f'  sudo mkdir -p /etc/aegisguard')
-    print(f'  sudo bash -c \'printf "%s" "{key}" > /etc/aegisguard/license.key\'')
-    print(f'  sudo systemctl restart aegisguard')
+    print(f'  sudo mkdir -p /etc/fguard')
+    print(f'  sudo bash -c \'printf "%s" "{key}" > /etc/fguard/license.key\'')
+    print(f'  sudo systemctl restart fguard')
     print()

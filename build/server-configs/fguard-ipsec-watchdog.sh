@@ -1,5 +1,5 @@
 #!/bin/bash
-# FGUARD UTC - IPSec tunnel watchdog
+# FGUARD - IPSec tunnel watchdog
 # Initiates the IPSec child SA if tunnel is not ESTABLISHED.
 # Run via cron every 2 minutes.
 #

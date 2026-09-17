@@ -1,4 +1,4 @@
-"""AegisGuard Dashboard panel."""
+"""FGUARD Dashboard panel."""
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QGridLayout,
     QTableWidget, QTableWidgetItem, QHeaderView, QSizePolicy

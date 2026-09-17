@@ -1,5 +1,5 @@
 #!/bin/bash
-# AegisGuard Auto Installer
+# FGUARD Auto Installer
 # Runs automatically when booting from the ISO.
 # Detects disk, partitions, installs, configures GRUB and reboots.
 
@@ -11,7 +11,7 @@ R='\033[0;31m'; G='\033[0;32m'; Y='\033[1;33m'; C='\033[0;36m'; B='\033[1m'; NC=
 clear
 echo -e "${C}"
 echo "  ╔══════════════════════════════════════════════════════╗"
-echo "  ║            AegisGuard Network Security               ║"
+echo "  ║            FGUARD Network Security               ║"
 echo "  ║                   Auto Installer                     ║"
 echo "  ╚══════════════════════════════════════════════════════╝"
 echo -e "${NC}"
@@ -130,8 +130,8 @@ ROOT_UUID=$(blkid -s UUID -o value "$ROOT_PART")
 } > "${INSTALL_MNT}/etc/fstab"
 
 # ── Remove live-only services ─────────────────────────────────────────────────
-chroot "$INSTALL_MNT" systemctl disable aegisguard-autoinstall 2>/dev/null || true
-rm -f "${INSTALL_MNT}/etc/systemd/system/aegisguard-autoinstall.service"
+chroot "$INSTALL_MNT" systemctl disable fguard-autoinstall 2>/dev/null || true
+rm -f "${INSTALL_MNT}/etc/systemd/system/fguard-autoinstall.service"
 rm -f "${INSTALL_MNT}/installed" 2>/dev/null || true
 # Signal that install is done (prevents re-install loop)
 touch "${INSTALL_MNT}/installed"
@@ -142,7 +142,7 @@ if [ "$UEFI" -eq 1 ]; then
     chroot "$INSTALL_MNT" grub-install \
         --target=x86_64-efi \
         --efi-directory=/boot/efi \
-        --bootloader-id=AegisGuard \
+        --bootloader-id=FGUARD \
         --recheck 2>/dev/null
 else
     chroot "$INSTALL_MNT" grub-install \
@@ -164,13 +164,13 @@ sync
 # ── Done ─────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${G}  ╔═════════════════════════════════════════════════════╗${NC}"
-echo -e "${G}  ║   AegisGuard installed successfully!                 ║${NC}"
+echo -e "${G}  ║   FGUARD installed successfully!                 ║${NC}"
 echo -e "${G}  ║                                                      ║${NC}"
 echo -e "${G}  ║   Remove USB/ISO and reboot.                         ║${NC}"
 echo -e "${G}  ║   Then connect a PC to the LAN port                  ║${NC}"
 echo -e "${G}  ║   and open: http://10.0.0.1:8080                     ║${NC}"
 echo -e "${G}  ║                                                      ║${NC}"
-echo -e "${G}  ║   Root password: AegisGuard2024!                     ║${NC}"
+echo -e "${G}  ║   Root password: FGUARD2024!                     ║${NC}"
 echo -e "${G}  ╚═════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -n "  Rebooting in 15 seconds... "

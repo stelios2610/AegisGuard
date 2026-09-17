@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
+import os
 import sys, sqlite3, hashlib, hmac
 
-DB = '/opt/aegisguard/firewall.db'
+DB = next((p for p in (
+    "/opt/fguard/firewall.db",
+    "/opt/aegisguard/firewall.db",
+) if os.path.isfile(p)), "/opt/aegisguard/firewall.db")
 
 try:
     import bcrypt as _bcrypt

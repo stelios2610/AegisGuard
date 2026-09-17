@@ -1,4 +1,4 @@
-"""FGUARD UTC - Network Security Suite
+"""FGUARD - Network Security Suite
 Entry point. Run as Administrator for full functionality.
 """
 import sys
@@ -32,9 +32,9 @@ def check_admin():
 
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName("FGUARD UTC")
+    app.setApplicationName("FGUARD")
     app.setApplicationVersion("1.0.0")
-    app.setOrganizationName("FGUARD UTC Security")
+    app.setOrganizationName("FGUARD Security")
 
     font = QFont("Segoe UI", 10)
     app.setFont(font)
@@ -64,7 +64,7 @@ def main():
     if not check_admin():
         QMessageBox.warning(
             None, "Administrator Required",
-            "FGUARD UTC is running without Administrator privileges.\n\n"
+            "FGUARD is running without Administrator privileges.\n\n"
             "Some features will be limited:\n"
             "  - Windows Firewall rule sync\n"
             "  - Hosts file web filtering\n"

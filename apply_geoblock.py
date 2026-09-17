@@ -1,6 +1,6 @@
 import sys, os, subprocess, time
-os.chdir('/opt/aegisguard')
-sys.path.insert(0, '/opt/aegisguard')
+os.chdir('/opt/fguard')
+sys.path.insert(0, '/opt/fguard')
 
 # Make sure ipset is installed
 print('Installing ipset...')
@@ -9,7 +9,7 @@ print('ipset:', 'ok' if r.returncode == 0 else r.stderr.strip()[:100])
 
 # Pull latest code
 print('Pulling latest code...')
-r = subprocess.run('cd /opt/aegisguard && git pull', shell=True, capture_output=True, text=True)
+r = subprocess.run('cd /opt/fguard && git pull', shell=True, capture_output=True, text=True)
 print('git pull:', r.stdout.strip()[-100:] or r.stderr.strip()[-100:])
 
 # Apply geoblock
@@ -28,8 +28,8 @@ if ok:
         print(' ', k, ':', v)
 
     print()
-    print('=== AEGISGUARD_INPUT chain ===')
-    r = subprocess.run('iptables -L AEGISGUARD_INPUT -n -v --line-numbers', shell=True, capture_output=True, text=True)
+    print('=== FGUARD_INPUT chain ===')
+    r = subprocess.run('iptables -L FGUARD_INPUT -n -v --line-numbers', shell=True, capture_output=True, text=True)
     print(r.stdout)
 
     print('=== Test: verify Greek IP is in ipset ===')
@@ -44,13 +44,13 @@ if ok:
     r = subprocess.run('ipset test geo_allowed 77.237.0.1 2>&1 && echo "Russian IP: ALLOWED" || echo "Russian IP: BLOCKED - good"', shell=True, capture_output=True, text=True)
     print(r.stdout.strip() or r.stderr.strip())
 
-# Restart aegisguard service
+# Restart fguard service
 print()
-print('=== Restarting AegisGuard ===')
-r = subprocess.run('systemctl restart aegisguard', shell=True, capture_output=True, text=True)
+print('=== Restarting FGUARD ===')
+r = subprocess.run('systemctl restart fguard', shell=True, capture_output=True, text=True)
 time.sleep(3)
-r2 = subprocess.run('systemctl is-active aegisguard', shell=True, capture_output=True, text=True)
-print('aegisguard:', r2.stdout.strip())
+r2 = subprocess.run('systemctl is-active fguard', shell=True, capture_output=True, text=True)
+print('fguard:', r2.stdout.strip())
 
 print()
 print('DONE. Geoblock is active.')

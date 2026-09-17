@@ -403,7 +403,7 @@ class VPNPanel(QWidget):
         tunnels = ipsec_manager.get_ipsec_tunnels()
         self.ipsec_table.setRowCount(len(tunnels))
         for row, t in enumerate(tunnels):
-            name = str(t.get("DisplayName", t.get("Name", ""))).replace("AegisGuard IPSec ", "")
+            name = str(t.get("DisplayName", t.get("Name", ""))).replace("FGUARD IPSec ", "")
             enabled = "Yes" if t.get("Enabled", True) else "No"
             status = str(t.get("PrimaryStatus", "Unknown"))
             for col, v in enumerate([name, status, enabled]):
@@ -515,7 +515,7 @@ class VPNPanel(QWidget):
         if row >= len(tunnels):
             return
         name_raw = str(tunnels[row].get("Name", ""))
-        name = name_raw.replace("AegisGuard-IPSec-", "")
+        name = name_raw.replace("FGUARD-IPSec-", "")
         ret = QMessageBox.question(self, "Confirm", f"Delete IPSec tunnel '{name}'?",
                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if ret == QMessageBox.StandardButton.Yes:

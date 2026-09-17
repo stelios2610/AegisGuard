@@ -1,6 +1,6 @@
 import sys, os, subprocess
-os.chdir('/opt/aegisguard')
-sys.path.insert(0, '/opt/aegisguard')
+os.chdir('/opt/fguard')
+sys.path.insert(0, '/opt/fguard')
 
 # Reload module with fixed interface detection
 import importlib
@@ -17,7 +17,7 @@ geoblock._apply_chain_rules(wan)
 print('Chain rebuilt with WAN =', wan)
 
 # Show result
-r = subprocess.run('iptables -L AEGISGUARD_INPUT -n -v --line-numbers', shell=True, capture_output=True, text=True)
+r = subprocess.run('iptables -L FGUARD_INPUT -n -v --line-numbers', shell=True, capture_output=True, text=True)
 print()
 print(r.stdout)
 

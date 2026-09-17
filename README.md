@@ -1,6 +1,6 @@
-# FGUARD UTC — Network Security Gateway
+# FGUARD — Network Security Gateway
 
-**FGUARD UTC** is a professional-grade network security gateway with a full web-based management interface. Built on Linux, it provides enterprise firewall features for small and medium businesses, branch offices, and home labs.
+**FGUARD** is a professional-grade network security gateway with a full web-based management interface. Built on Linux, it provides enterprise firewall features for small and medium businesses, branch offices, and home labs.
 
 > Current version: **v1.0.12**
 
@@ -49,7 +49,7 @@ Internet (WAN)
       │
    [ens1]  ←── WAN interface (DHCP from ISP)
       │
- [FGUARD UTC Server]
+ [FGUARD Server]
       │
    [eth1]  ←── LAN trunk (802.1Q)
       ├── eth1.10  (VLAN 10 — main LAN, 192.168.0.x)
@@ -79,11 +79,11 @@ curl -fsSL https://raw.githubusercontent.com/stelios2610/test-fguard/main/instal
 
 The installer will:
 1. Install all dependencies (Python 3, nginx, dnsmasq, OpenVPN, WireGuard, strongSwan, iptables-persistent, etc.)
-2. Clone this repository to `/opt/aegisguard`
+2. Clone this repository to `/opt/fguard`
 3. Create a Python virtual environment and install requirements
 4. Configure nginx for HTTPS
 5. Generate a self-signed SSL certificate
-6. Set up and enable the `aegisguard.service` systemd unit
+6. Set up and enable the `fguard.service` systemd unit
 7. Configure NAT, dnsmasq, QoS, and boot persistence
 
 After installation, access the web UI at:
@@ -97,7 +97,7 @@ Default credentials: `admin / admin`
 ## Directory Structure
 
 ```
-/opt/aegisguard/
+/opt/fguard/
 ├── core/               # Backend modules
 │   ├── network_manager.py   # VLAN, DHCP, NAT, QoS
 │   ├── rules_engine.py      # Firewall rules
@@ -129,7 +129,7 @@ Default credentials: `admin / admin`
 
 ## License System
 
-Each installation requires a license file at `/etc/aegisguard/license.key`.
+Each installation requires a license file at `/etc/fguard/license.key`.
 
 - Licenses are **MAC-address bound** (tied to the NIC of the server)
 - Signed with HMAC-SHA256
@@ -141,7 +141,7 @@ Each installation requires a license file at `/etc/aegisguard/license.key`.
 
 ## OTA Update System
 
-FGUARD UTC supports over-the-air updates from the [UPDATE-FGUARD](https://github.com/stelios2610/UPDATE-FGUARD) repository.
+FGUARD supports over-the-air updates from the [UPDATE-FGUARD](https://github.com/stelios2610/UPDATE-FGUARD) repository.
 
 1. Go to **System → Updates** in the web UI
 2. Click **Check Now** — the system compares `version.json` with the upstream release
@@ -176,7 +176,7 @@ Updates never overwrite: `firewall.db`, `pki/`, `vpn-configs/`, `version.json`.
 | Repo | Purpose |
 |------|---------|
 | [test-fguard](https://github.com/stelios2610/test-fguard) | Primary — install source for new servers |
-| [AegisGuard](https://github.com/stelios2610/AegisGuard) | Mirror backup of test-fguard |
+| [FGUARD](https://github.com/stelios2610/AegisGuard) | Mirror backup of test-fguard |
 | [UPDATE-FGUARD](https://github.com/stelios2610/UPDATE-FGUARD) | OTA update packages |
 
 ---

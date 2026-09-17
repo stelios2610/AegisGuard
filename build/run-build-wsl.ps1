@@ -1,4 +1,4 @@
-# AegisGuard ISO Builder — WSL2 Helper
+# FGUARD ISO Builder — WSL2 Helper
 # Run this from PowerShell as Administrator:
 #   cd C:\Users\stelakis-pc\Projects\firewall-gui\build
 #   .\run-build-wsl.ps1
@@ -7,7 +7,7 @@ $ProjectDir = "C:\Users\stelakis-pc\Projects\firewall-gui"
 $BuildScript = "/mnt/c/Users/stelakis-pc/Projects/firewall-gui/build/build-iso.sh"
 
 Write-Host ""
-Write-Host "  AegisGuard ISO Builder" -ForegroundColor Cyan
+Write-Host "  FGUARD ISO Builder" -ForegroundColor Cyan
 Write-Host "  ══════════════════════" -ForegroundColor Cyan
 Write-Host ""
 
@@ -39,7 +39,7 @@ wsl -u root bash -c "
 "
 
 if ($LASTEXITCODE -eq 0) {
-    $IsoPath = "$ProjectDir\build\aegisguard.iso"
+    $IsoPath = "$ProjectDir\build\fguard.iso"
     if (Test-Path $IsoPath) {
         $IsoSize = (Get-Item $IsoPath).Length / 1GB
         Write-Host ""

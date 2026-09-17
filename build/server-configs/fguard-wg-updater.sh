@@ -1,5 +1,5 @@
 #!/bin/bash
-# FGUARD UTC - WireGuard endpoint auto-updater
+# FGUARD - WireGuard endpoint auto-updater
 # Resolves peer hostname via DNS and updates WG endpoint if IP changed.
 # Run via cron every 2 minutes.
 #

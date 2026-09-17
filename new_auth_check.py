@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import sys, sqlite3, hashlib, hmac
 
-DB = '/opt/aegisguard/firewall.db'
+DB = '/opt/fguard/firewall.db'
 
 try:
     with open(sys.argv[1]) as f:

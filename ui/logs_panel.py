@@ -131,7 +131,7 @@ class LogsPanel(QWidget):
         self.stat_allowed.setText(f"Allowed: {stats['allowed']:,}")
 
     def _export_csv(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Export Logs", "aegisguard_logs.csv",
+        path, _ = QFileDialog.getSaveFileName(self, "Export Logs", "fguard_logs.csv",
                                               "CSV Files (*.csv)")
         if not path:
             return

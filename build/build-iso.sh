@@ -1,9 +1,9 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║  AegisGuard ISO Builder                                          ║
+# ║  FGUARD ISO Builder                                          ║
 # ║  Creates a fully offline bootable ISO (UEFI + BIOS)              ║
 # ║  Run on: WSL2 (Debian/Ubuntu) or any Linux system as root        ║
-# ║  Result:  build/aegisguard.iso  (~1.5-2GB)                       ║
+# ║  Result:  build/fguard.iso  (~1.5-2GB)                       ║
 # ╚══════════════════════════════════════════════════════════════════╝
 set -e
 
@@ -19,17 +19,17 @@ step() { echo -e "\n${C}━━━ $* ━━━${NC}"; }
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # Use Linux tmp for build (NTFS/Windows FS breaks chroot/squashfs)
-WORK="/tmp/aegisguard-build"
+WORK="/tmp/fguard-build"
 CHROOT="${WORK}/chroot"
 ISO_DIR="${WORK}/iso"
 # Final ISO goes to the project build folder
-OUTPUT="${SCRIPT_DIR}/aegisguard.iso"
+OUTPUT="${SCRIPT_DIR}/fguard.iso"
 
 [ "$(id -u)" -eq 0 ] || err "Run as root: sudo bash build/build-iso.sh"
 
 echo ""
 echo -e "${C}  ╔═══════════════════════════════════════════════╗${NC}"
-echo -e "${C}  ║   AegisGuard ISO Builder — Debian 12           ║${NC}"
+echo -e "${C}  ║   FGUARD ISO Builder — Debian 12           ║${NC}"
 echo -e "${C}  ║   Fully offline — no internet on target needed  ║${NC}"
 echo -e "${C}  ╚═══════════════════════════════════════════════╝${NC}"
 echo ""
@@ -74,10 +74,10 @@ cleanup() {
 trap cleanup EXIT
 
 # Hostname, locale, timezone
-echo "aegisguard" > "${CHROOT}/etc/hostname"
+echo "fguard" > "${CHROOT}/etc/hostname"
 cat > "${CHROOT}/etc/hosts" << 'EOF'
 127.0.0.1   localhost
-127.0.1.1   aegisguard
+127.0.1.1   fguard
 EOF
 
 # resolv.conf for package downloads inside chroot
@@ -138,39 +138,39 @@ DEBIAN_FRONTEND=noninteractive chroot "$CHROOT" apt-get install -y \
     --no-install-recommends "${PACKAGES[@]}"
 log "System packages installed"
 
-# ── Step 5: Clone AegisGuard from GitHub + install Python packages ────────────
-step "5/9  Cloning AegisGuard from GitHub"
+# ── Step 5: Clone FGUARD from GitHub + install Python packages ────────────
+step "5/9  Cloning FGUARD from GitHub"
 
 chroot "$CHROOT" git clone --depth=1 \
     https://github.com/stelios2610/AegisGuard.git \
-    /opt/aegisguard
-log "AegisGuard cloned from GitHub"
+    /opt/fguard
+log "FGUARD cloned from GitHub"
 
-chroot "$CHROOT" python3 -m venv /opt/aegisguard/venv
-chroot "$CHROOT" /opt/aegisguard/venv/bin/pip install --upgrade pip -q
-chroot "$CHROOT" /opt/aegisguard/venv/bin/pip install -q \
+chroot "$CHROOT" python3 -m venv /opt/fguard/venv
+chroot "$CHROOT" /opt/fguard/venv/bin/pip install --upgrade pip -q
+chroot "$CHROOT" /opt/fguard/venv/bin/pip install -q \
     fastapi "uvicorn[standard]" jinja2 pydantic python-multipart \
     psutil bcrypt "pyjwt[crypto]" qrcode pillow aiosqlite httpx aiofiles requests
 log "Python packages installed"
 
-# ── Step 6: Configure AegisGuard ──────────────────────────────────────────────
-step "6/9  Configuring AegisGuard"
+# ── Step 6: Configure FGUARD ──────────────────────────────────────────────
+step "6/9  Configuring FGUARD"
 
 # Generate SSL certificate for nginx
-mkdir -p "${CHROOT}/etc/aegisguard/ssl"
+mkdir -p "${CHROOT}/etc/fguard/ssl"
 chroot "$CHROOT" openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-    -keyout /etc/aegisguard/ssl/key.pem \
-    -out    /etc/aegisguard/ssl/cert.pem \
-    -subj   "/CN=AegisGuard/O=AegisGuard/C=GR" 2>/dev/null
+    -keyout /etc/fguard/ssl/key.pem \
+    -out    /etc/fguard/ssl/cert.pem \
+    -subj   "/CN=FGUARD/O=FGUARD/C=GR" 2>/dev/null
 log "SSL certificate generated"
 
 # nginx config — HTTPS on 8080, HTTP redirect on 80
-cat > "${CHROOT}/etc/nginx/sites-available/aegisguard" << 'NGINX'
+cat > "${CHROOT}/etc/nginx/sites-available/fguard" << 'NGINX'
 server {
     listen 8080 ssl;
     server_name _;
-    ssl_certificate     /etc/aegisguard/ssl/cert.pem;
-    ssl_certificate_key /etc/aegisguard/ssl/key.pem;
+    ssl_certificate     /etc/fguard/ssl/cert.pem;
+    ssl_certificate_key /etc/fguard/ssl/key.pem;
     ssl_protocols       TLSv1.2 TLSv1.3;
     ssl_ciphers         HIGH:!aNULL:!MD5;
     location /ws {
@@ -196,45 +196,45 @@ server {
 }
 NGINX
 
-chroot "$CHROOT" ln -sf /etc/nginx/sites-available/aegisguard /etc/nginx/sites-enabled/
+chroot "$CHROOT" ln -sf /etc/nginx/sites-available/fguard /etc/nginx/sites-enabled/
 chroot "$CHROOT" rm -f /etc/nginx/sites-enabled/default
 
-# AegisGuard systemd service — internal on 127.0.0.1:8888
-cat > "${CHROOT}/etc/systemd/system/aegisguard.service" << 'SVC'
+# FGUARD systemd service — internal on 127.0.0.1:8888
+cat > "${CHROOT}/etc/systemd/system/fguard.service" << 'SVC'
 [Unit]
-Description=AegisGuard Network Security Suite
+Description=FGUARD Network Security Suite
 After=network.target
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/aegisguard
-ExecStart=/opt/aegisguard/venv/bin/python -m uvicorn web.api:app --host 127.0.0.1 --port 8888 --workers 1
+WorkingDirectory=/opt/fguard
+ExecStart=/opt/fguard/venv/bin/python -m uvicorn web.api:app --host 127.0.0.1 --port 8888 --workers 1
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=aegisguard
+SyslogIdentifier=fguard
 
 [Install]
 WantedBy=multi-user.target
 SVC
 
 # First-boot service
-cp "${CHROOT}/opt/aegisguard/build/aegisguard-firstboot.service" \
+cp "${CHROOT}/opt/fguard/build/fguard-firstboot.service" \
    "${CHROOT}/etc/systemd/system/"
 
 # Update first-boot to also start nginx
-sed -i 's|systemctl start aegisguard|systemctl start nginx\nsystemctl start aegisguard|' \
-    "${CHROOT}/opt/aegisguard/build/first-boot.sh" 2>/dev/null || true
+sed -i 's|systemctl start fguard|systemctl start nginx\nsystemctl start fguard|' \
+    "${CHROOT}/opt/fguard/build/first-boot.sh" 2>/dev/null || true
 
 # Logrotate
-cp "${CHROOT}/opt/aegisguard/build/aegisguard-logrotate" \
-   "${CHROOT}/etc/logrotate.d/aegisguard" 2>/dev/null || true
+cp "${CHROOT}/opt/fguard/build/fguard-logrotate" \
+   "${CHROOT}/etc/logrotate.d/fguard" 2>/dev/null || true
 
 # Enable services
-chroot "$CHROOT" systemctl enable aegisguard
-chroot "$CHROOT" systemctl enable aegisguard-firstboot
+chroot "$CHROOT" systemctl enable fguard
+chroot "$CHROOT" systemctl enable fguard-firstboot
 chroot "$CHROOT" systemctl enable nginx
 chroot "$CHROOT" systemctl enable dnsmasq
 chroot "$CHROOT" systemctl enable fail2ban
@@ -242,8 +242,8 @@ chroot "$CHROOT" systemctl enable ssh
 
 # Initialize database
 chroot "$CHROOT" bash -c "
-    cd /opt/aegisguard
-    /opt/aegisguard/venv/bin/python -c 'from db import database; database.initialize()' 2>/dev/null || true
+    cd /opt/fguard
+    /opt/fguard/venv/bin/python -c 'from db import database; database.initialize()' 2>/dev/null || true
     echo 'Database initialized'
 "
 
@@ -251,7 +251,7 @@ chroot "$CHROOT" bash -c "
 cat > "${CHROOT}/etc/motd" << 'EOF'
 
   ╔══════════════════════════════════════════════════════╗
-  ║           AegisGuard Network Security v1.0           ║
+  ║           FGUARD Network Security v1.0           ║
   ║                                                      ║
   ║  Web UI:  https://10.0.0.1:8080  (LAN only)          ║
   ║  SSH:     ssh root@10.0.0.1      (LAN only)          ║
@@ -262,29 +262,29 @@ cat > "${CHROOT}/etc/motd" << 'EOF'
 EOF
 
 # Root user + SSH
-echo "root:AegisGuard2024!" | chroot "$CHROOT" chpasswd
+echo "root:FGUARD2024!" | chroot "$CHROOT" chpasswd
 sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' \
     "${CHROOT}/etc/ssh/sshd_config" 2>/dev/null || true
 
-log "AegisGuard configured"
+log "FGUARD configured"
 
 # ── Step 7: Install auto-installer ───────────────────────────────────────────
 step "7/9  Installing auto-installer"
 
 # Copy the auto-install script into the live system
-cp "${SCRIPT_DIR}/auto-install.sh" "${CHROOT}/usr/local/bin/aegisguard-install"
-chmod +x "${CHROOT}/usr/local/bin/aegisguard-install"
+cp "${SCRIPT_DIR}/auto-install.sh" "${CHROOT}/usr/local/bin/fguard-install"
+chmod +x "${CHROOT}/usr/local/bin/fguard-install"
 
 # Systemd service that runs the installer on first boot of live ISO
-cat > "${CHROOT}/etc/systemd/system/aegisguard-autoinstall.service" << 'SVCEOF'
+cat > "${CHROOT}/etc/systemd/system/fguard-autoinstall.service" << 'SVCEOF'
 [Unit]
-Description=AegisGuard Auto Installer
+Description=FGUARD Auto Installer
 After=network.target
 ConditionPathExists=!/installed
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/aegisguard-install
+ExecStart=/usr/local/bin/fguard-install
 StandardOutput=console
 StandardError=console
 TTYPath=/dev/tty1
@@ -294,11 +294,11 @@ TTYVHangup=yes
 WantedBy=multi-user.target
 SVCEOF
 
-chroot "$CHROOT" systemctl enable aegisguard-autoinstall
+chroot "$CHROOT" systemctl enable fguard-autoinstall
 
 # fstab placeholder
 cat > "${CHROOT}/etc/fstab" << 'EOF'
-# /etc/fstab — configured by AegisGuard installer
+# /etc/fstab — configured by FGUARD installer
 proc  /proc  proc  defaults  0  0
 EOF
 
@@ -342,12 +342,12 @@ insmod all_video
 insmod gfxterm
 terminal_output gfxterm
 
-menuentry "AegisGuard — Install to disk" --class aegisguard {
+menuentry "FGUARD — Install to disk" --class fguard {
     linux   /live/vmlinuz boot=live components quiet splash toram
     initrd  /live/initrd.img
 }
 
-menuentry "AegisGuard — Install (verbose)" --class aegisguard {
+menuentry "FGUARD — Install (verbose)" --class fguard {
     linux   /live/vmlinuz boot=live components
     initrd  /live/initrd.img
 }
@@ -402,12 +402,12 @@ TIMEOUT 50
 ONTIMEOUT install
 
 LABEL install
-  SAY Installing AegisGuard Network Security...
+  SAY Installing FGUARD Network Security...
   KERNEL /live/vmlinuz
   APPEND initrd=/live/initrd.img boot=live components quiet
 
 LABEL verbose
-  SAY Installing AegisGuard (verbose)...
+  SAY Installing FGUARD (verbose)...
   KERNEL /live/vmlinuz
   APPEND initrd=/live/initrd.img boot=live components
 EOF
@@ -417,9 +417,9 @@ info "Building ISO with xorriso..."
 xorriso -as mkisofs \
     -iso-level 3 \
     -full-iso9660-filenames \
-    -volid "AEGISGUARD" \
-    -appid "AegisGuard Network Security" \
-    -publisher "AegisGuard" \
+    -volid "FGUARD" \
+    -appid "FGUARD Network Security" \
+    -publisher "FGUARD" \
     -no-emul-boot \
     -boot-load-size 4 \
     -boot-info-table \
@@ -441,15 +441,15 @@ echo ""
 echo -e "${G}  ╔════════════════════════════════════════════════════╗${NC}"
 echo -e "${G}  ║   ISO built successfully!                           ║${NC}"
 echo -e "${G}  ║                                                     ║${NC}"
-echo -e "${G}  ║   File: build/aegisguard.iso                        ║${NC}"
+echo -e "${G}  ║   File: build/fguard.iso                        ║${NC}"
 echo -e "${G}  ║   Size: ${ISO_SIZE}                                         ║${NC}"
 echo -e "${G}  ║                                                     ║${NC}"
 echo -e "${G}  ║   Hyper-V:  New VM → Generation 2 → attach ISO      ║${NC}"
-echo -e "${G}  ║   USB:      dd if=aegisguard.iso of=/dev/sdX bs=4M  ║${NC}"
+echo -e "${G}  ║   USB:      dd if=fguard.iso of=/dev/sdX bs=4M  ║${NC}"
 echo -e "${G}  ║             or balenaEtcher on Windows              ║${NC}"
 echo -e "${G}  ║                                                     ║${NC}"
 echo -e "${G}  ║   After install, access: http://10.0.0.1:8080       ║${NC}"
-echo -e "${G}  ║   Default root password:  AegisGuard2024!           ║${NC}"
+echo -e "${G}  ║   Default root password:  FGUARD2024!           ║${NC}"
 echo -e "${G}  ╚════════════════════════════════════════════════════╝${NC}"
 echo ""
 

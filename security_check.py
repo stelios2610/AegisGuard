@@ -1,6 +1,6 @@
 import sys, os, subprocess, sqlite3, time
-os.chdir('/opt/aegisguard')
-sys.path.insert(0, '/opt/aegisguard')
+os.chdir('/opt/fguard')
+sys.path.insert(0, '/opt/fguard')
 
 def sh(cmd):
     r = subprocess.run(cmd, shell=True, capture_output=True, text=True)
@@ -11,7 +11,7 @@ print()
 
 # 1. Check rules table for blocked IPs
 print('--- DB: rules table content ---')
-conn = sqlite3.connect('/opt/aegisguard/firewall.db')
+conn = sqlite3.connect('/opt/fguard/firewall.db')
 conn.row_factory = sqlite3.Row
 cur = conn.cursor()
 
@@ -78,12 +78,12 @@ for num in sorted(to_delete, reverse=True):
     ok, err = sh('iptables -D INPUT %d' % num)
     print('  Deleted INPUT rule %d: %s' % (num, 'ok' if not err else err))
 
-# 4. Reconnect AEGISGUARD_INPUT to INPUT chain
+# 4. Reconnect FGUARD_INPUT to INPUT chain
 print()
-print('--- Fix: Reconnect AEGISGUARD_INPUT ---')
-out, _ = sh('iptables -L INPUT -n | grep AEGISGUARD')
-if 'AEGISGUARD_INPUT' in out:
-    print('  AEGISGUARD_INPUT already in INPUT chain - ok')
+print('--- Fix: Reconnect FGUARD_INPUT ---')
+out, _ = sh('iptables -L INPUT -n | grep FGUARD')
+if 'FGUARD_INPUT' in out:
+    print('  FGUARD_INPUT already in INPUT chain - ok')
 else:
     # Insert after the WAN DROP rules (ens1-specific), before the ACCEPT all from LAN
     # Find position of first ACCEPT rule
@@ -94,13 +94,13 @@ else:
         if len(parts) >= 2 and parts[0].isdigit() and parts[1] == 'ACCEPT':
             pos = int(parts[0])
             break
-    ok, err = sh('iptables -I INPUT %d -j AEGISGUARD_INPUT' % pos)
-    print('  Inserted AEGISGUARD_INPUT at position %d: %s' % (pos, 'ok' if not err else err))
+    ok, err = sh('iptables -I INPUT %d -j FGUARD_INPUT' % pos)
+    print('  Inserted FGUARD_INPUT at position %d: %s' % (pos, 'ok' if not err else err))
 
 # 5. Add "safe IPs" to IPS whitelist (prevent 8.8.8.8/1.1.1.1 from being auto-blocked)
 print()
 print('--- Fix: Add DNS servers to IPS safe list ---')
-conn = sqlite3.connect('/opt/aegisguard/firewall.db')
+conn = sqlite3.connect('/opt/fguard/firewall.db')
 # Check if there's a whitelist/safe_ips setting
 cur = conn.cursor()
 cur.execute("SELECT value FROM settings WHERE key='ips_safe_ips'")
@@ -123,13 +123,13 @@ out, _ = sh('iptables -L INPUT -n --line-numbers')
 print(out)
 
 print()
-print('--- Final: AEGISGUARD_INPUT chain ---')
-out, _ = sh('iptables -L AEGISGUARD_INPUT -n --line-numbers')
+print('--- Final: FGUARD_INPUT chain ---')
+out, _ = sh('iptables -L FGUARD_INPUT -n --line-numbers')
 print(out)
 
 print()
 print('--- Final: Blocked countries ---')
-conn = sqlite3.connect('/opt/aegisguard/firewall.db')
+conn = sqlite3.connect('/opt/fguard/firewall.db')
 cur = conn.cursor()
 cur.execute("SELECT value FROM settings WHERE key='blocked_countries'")
 bc = cur.fetchone()

@@ -1,10 +1,10 @@
 #!/bin/bash
-# AegisGuard First Boot Setup
+# FGUARD First Boot Setup
 # Runs once after installation to configure the network and start services.
 # Ubuntu 26.04 uses Netplan — /etc/network/interfaces is ignored.
 
-LOGFILE="/var/log/aegisguard-firstboot.log"
-DONE_FLAG="/etc/aegisguard/.firstboot_done"
+LOGFILE="/var/log/fguard-firstboot.log"
+DONE_FLAG="/etc/fguard/.firstboot_done"
 
 exec > >(tee -a "$LOGFILE") 2>&1
 
@@ -15,8 +15,8 @@ if [ -f "$DONE_FLAG" ]; then
     exit 0
 fi
 
-log "=== AegisGuard First Boot Setup ==="
-mkdir -p /etc/aegisguard
+log "=== FGUARD First Boot Setup ==="
+mkdir -p /etc/fguard
 
 # ── 1. Detect actual interface names ─────────────────────────────────────────
 IFACES=($(ls /sys/class/net | grep -v lo | sort))
@@ -28,7 +28,7 @@ log "Detected interfaces: WAN=$WAN_IF  LAN=$LAN_IF"
 rm -f /etc/netplan/00-installer-config.yaml 2>/dev/null || true
 rm -f /etc/netplan/50-cloud-init.yaml 2>/dev/null || true
 
-cat > /etc/netplan/50-aegisguard.yaml << EOF
+cat > /etc/netplan/50-fguard.yaml << EOF
 network:
   version: 2
   ethernets:
@@ -39,8 +39,8 @@ network:
       addresses:
         - 10.0.0.1/24
 EOF
-chmod 600 /etc/netplan/50-aegisguard.yaml
-log "Written /etc/netplan/50-aegisguard.yaml"
+chmod 600 /etc/netplan/50-fguard.yaml
+log "Written /etc/netplan/50-fguard.yaml"
 
 # ── 3. Apply network config ───────────────────────────────────────────────────
 netplan generate 2>/dev/null || true
@@ -57,12 +57,12 @@ ip link set "${WAN_IF}" up 2>/dev/null || true
 log "WAN ${WAN_IF} up (DHCP via netplan)"
 
 # ── 4. IP forwarding — persistent via sysctl.d ───────────────────────────────
-cat > /etc/sysctl.d/99-aegisguard.conf << 'SYSCTL'
+cat > /etc/sysctl.d/99-fguard.conf << 'SYSCTL'
 net.ipv4.ip_forward = 1
 net.ipv4.conf.all.forwarding = 1
 net.ipv4.conf.all.rp_filter = 1
 SYSCTL
-sysctl -p /etc/sysctl.d/99-aegisguard.conf 2>/dev/null || true
+sysctl -p /etc/sysctl.d/99-fguard.conf 2>/dev/null || true
 log "IP forwarding enabled (persistent)"
 
 # ── 5. NAT masquerade on WAN ─────────────────────────────────────────────────
@@ -94,11 +94,11 @@ sed -i 's/#DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf 2
 sed -i 's/DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf 2>/dev/null || true
 systemctl restart systemd-resolved 2>/dev/null || true
 
-# Write AegisGuard block into /etc/dnsmasq.conf
-sed -i '/# AegisGuard DHCP config/,$ d' /etc/dnsmasq.conf 2>/dev/null || true
+# Write FGUARD block into /etc/dnsmasq.conf
+sed -i '/# FGUARD DHCP config/,$ d' /etc/dnsmasq.conf 2>/dev/null || true
 
 cat >> /etc/dnsmasq.conf << EOF
-# AegisGuard DHCP config (dnsmasq)
+# FGUARD DHCP config (dnsmasq)
 # Listen only on LAN interface to avoid conflict with systemd-resolved
 listen-address=10.0.0.1
 bind-interfaces
@@ -120,10 +120,10 @@ systemctl enable dnsmasq 2>/dev/null || true
 systemctl restart dnsmasq 2>/dev/null || true
 log "dnsmasq started on ${LAN_IF} (10.0.0.100-200)"
 
-# ── 8. Update AegisGuard DB with interface names ──────────────────────────────
+# ── 8. Update FGUARD DB with interface names ──────────────────────────────
 python3 - << PYEOF || log "DB update skipped (will use defaults)"
 import sys
-sys.path.insert(0, '/opt/aegisguard')
+sys.path.insert(0, '/opt/fguard')
 from db import database
 database.initialize()
 conn = database.get_connection()
@@ -138,20 +138,20 @@ print("DB updated: WAN=${WAN_IF} LAN=${LAN_IF}")
 PYEOF
 
 # ── 9. SSL cert for nginx ────────────────────────────────────────────────────
-if [ ! -f /etc/nginx/ssl/aegisguard.crt ]; then
+if [ ! -f /etc/nginx/ssl/fguard.crt ]; then
     mkdir -p /etc/nginx/ssl
     openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-        -keyout /etc/nginx/ssl/aegisguard.key \
-        -out    /etc/nginx/ssl/aegisguard.crt \
-        -subj   "/CN=AegisGuard/O=AegisGuard/C=GR" 2>/dev/null || true
-    chmod 640 /etc/nginx/ssl/aegisguard.key 2>/dev/null || true
+        -keyout /etc/nginx/ssl/fguard.key \
+        -out    /etc/nginx/ssl/fguard.crt \
+        -subj   "/CN=FGUARD/O=FGUARD/C=GR" 2>/dev/null || true
+    chmod 640 /etc/nginx/ssl/fguard.key 2>/dev/null || true
     log "SSL cert generated"
 fi
 
 # ── 10. Start services ────────────────────────────────────────────────────────
-systemctl enable aegisguard nginx fail2ban 2>/dev/null || true
+systemctl enable fguard nginx fail2ban 2>/dev/null || true
 systemctl restart nginx 2>/dev/null || true
-systemctl start aegisguard 2>/dev/null || true
+systemctl start fguard 2>/dev/null || true
 log "Services started"
 
 # ── 11. Done ──────────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-"""FGUARD UTC — License Generator (GUI)"""
+"""FGUARD — License Generator (GUI)"""
 import tkinter as tk
 from tkinter import ttk, messagebox
 import hashlib
@@ -44,7 +44,7 @@ def save_log(mac, customer, expires, key):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("FGUARD UTC — License Generator")
+        self.title("FGUARD — License Generator")
         self.resizable(False, False)
         self.configure(bg="#1e2329")
         self._set_icon()
@@ -79,7 +79,7 @@ class App(tk.Tk):
         # ── Header ────────────────────────────────────────────────────────────
         hdr = tk.Frame(self, bg=ACCENT, pady=12)
         hdr.pack(fill="x")
-        tk.Label(hdr, text="🛡  FGUARD UTC", font=("Segoe UI", 16, "bold"),
+        tk.Label(hdr, text="🛡  FGUARD", font=("Segoe UI", 16, "bold"),
                  bg=ACCENT, fg="#fff").pack()
         tk.Label(hdr, text="License Generator", font=("Segoe UI", 10),
                  bg=ACCENT, fg="#f5b7b1").pack()
@@ -203,9 +203,9 @@ class App(tk.Tk):
             return
 
         cmds = (
-            f"sudo mkdir -p /etc/aegisguard\n"
-            f"sudo bash -c 'printf \"%s\" \"{key}\" > /etc/aegisguard/license.key'\n"
-            f"sudo systemctl restart aegisguard"
+            f"sudo mkdir -p /etc/fguard\n"
+            f"sudo bash -c 'printf \"%s\" \"{key}\" > /etc/fguard/license.key'\n"
+            f"sudo systemctl restart fguard"
         )
 
         self._set_text(self.key_text, key)

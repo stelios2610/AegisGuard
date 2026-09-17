@@ -1,5 +1,5 @@
 #!/bin/bash
-# AegisGuard Firewall Reset
+# FGUARD Firewall Reset
 # Resets iptables to correct state: internet + VPN ports open, WAN otherwise blocked
 # Safe to run at any time without touching network config/DHCP/DB
 

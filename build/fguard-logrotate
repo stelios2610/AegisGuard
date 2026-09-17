@@ -1,5 +1,5 @@
-# AegisGuard log rotation — keeps total under 2GB
-/var/log/aegisguard/*.log {
+# FGUARD log rotation — keeps total under 2GB
+/var/log/fguard/*.log {
     daily
     rotate 30
     compress
@@ -9,7 +9,7 @@
     size 100M
     maxsize 500M
     postrotate
-        systemctl reload aegisguard 2>/dev/null || true
+        systemctl reload fguard 2>/dev/null || true
     endscript
 }
 
