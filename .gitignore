@@ -45,3 +45,8 @@ protect*.py
 ipsec_*.py
 close_wan*.py
 licenses.csv
+
+# License signing key. The public key ships in core/license_manager.py.
+# The private key lives in the issuer's home directory, never in this repo.
+license-private.pem
+license-public.pem

@@ -1,44 +1,9 @@
 """FGUARD — License Generator (GUI)"""
 import tkinter as tk
 from tkinter import ttk, messagebox
-import hashlib
-import json
-import base64
-import csv
 import os
-from datetime import datetime, timedelta
 
-# ── Πρέπει να είναι ΙΔΙΟ με core/license_manager.py ──────────────────────────
-SECRET_KEY = "3a6e515a424558f4fae7173cf9b250ef2443d2783d8ea277b9e106b8cea15998"
-LOG_FILE = os.path.join(os.path.dirname(__file__), "licenses.csv")
-LIFETIME_EXPIRES = "9999-12-31"
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def generate_license(mac: str, customer: str, months: int) -> tuple[str, str]:
-    """months=0 → lifetime license"""
-    lifetime = (months == 0)
-    expires = LIFETIME_EXPIRES if lifetime else (datetime.now() + timedelta(days=30 * months)).strftime("%Y-%m-%d")
-    data = {
-        "mac": mac.upper().strip(),
-        "customer": customer.strip(),
-        "issued": datetime.now().strftime("%Y-%m-%d"),
-        "expires": expires,
-    }
-    payload = json.dumps(data, separators=(',', ':'), sort_keys=True)
-    signature = hashlib.sha256((payload + SECRET_KEY).encode()).hexdigest()
-    data["signature"] = signature
-    key = base64.b64encode(json.dumps(data).encode()).decode()
-    return key, "LIFETIME" if lifetime else expires
-
-
-def save_log(mac, customer, expires, key):
-    exists = os.path.isfile(LOG_FILE)
-    with open(LOG_FILE, "a", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        if not exists:
-            w.writerow(["Issued", "Customer", "MAC", "Expires", "Key"])
-        w.writerow([datetime.now().strftime("%Y-%m-%d"), customer, mac.upper(), expires, key])
+from generate_license import LOG_FILE, generate_license, save_to_log
 
 
 class App(tk.Tk):
@@ -197,7 +162,7 @@ class App(tk.Tk):
 
         try:
             key, expires = generate_license(mac_clean, customer, months)
-            save_log(mac_clean, customer, expires, key)
+            save_to_log(mac_clean, customer, expires, key)
         except Exception as e:
             messagebox.showerror("Σφάλμα", str(e))
             return
