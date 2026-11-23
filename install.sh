@@ -329,8 +329,7 @@ cat > /etc/motd << MOTD
   ║  Web UI:  https://10.0.0.1:8080  (LAN only)          ║
   ║  SSH:     ssh stelios@10.0.0.1   (LAN only)          ║
   ║                                                      ║
-  ║  Default login: admin / admin                        ║
-  ║  Change password after first login!                  ║
+  ║  First web sign-in must set a new admin password.    ║
   ╚══════════════════════════════════════════════════════╝
 
 MOTD
@@ -343,7 +342,7 @@ echo -e "${G}  ╔════════════════════�
 echo -e "${G}  ║   FGUARD installed successfully!         ║${NC}"
 echo -e "${G}  ║                                              ║${NC}"
 echo -e "${G}  ║   Web UI: https://10.0.0.1:8080             ║${NC}"
-echo -e "${G}  ║   Login:  admin / admin                      ║${NC}"
+echo -e "${G}  ║   First sign-in must set a new admin password. ║${NC}"
 echo -e "${G}  ║                                              ║${NC}"
 echo -e "${G}  ║   Connect PC to ${LAN_IF} port              ║${NC}"
 echo -e "${G}  ╚══════════════════════════════════════════════╝${NC}"
