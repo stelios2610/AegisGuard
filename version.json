@@ -1,6 +1,6 @@
 {
-  "version": "1.0.43",
-  "date": "2026-11-23",
+  "version": "1.0.45",
+  "date": "2026-11-24",
   "product": "FGUARD",
   "changelog": [
     "The factory admin password must be replaced before the rest of the UI opens. An existing password is left as it is.",
@@ -9,6 +9,8 @@
     "Traffic Security is included and stays off: Suricata on LAN to WAN, URL categories, download antivirus, and HTTPS inspection.",
     "Measured throughput, HA session sync when conntrackd is installed, and a read-only view of other firewalls.",
     "Traffic Security downloads Suricata, ClamAV, and sslsplit when you press Download and enable.",
-    "Optional threat signatures, application identification, HTTPS categories, decrypted antivirus, safer HTTPS bypasses, and policy push. All stay off until enabled."
+    "Optional threat signatures, application identification, HTTPS categories, decrypted antivirus, safer HTTPS bypasses, and policy push. All stay off until enabled.",
+    "Optional address groups, rule schedules, VLAN-to-VLAN rules, hit counters, full HA policy sync, Suricata interface choice, signature alert or drop, larger block lists, traffic graphs, and protocol identification. All stay off until enabled.",
+    "HTTPS inspection and the saved Spamhaus address list come back after a reboot when they were already enabled."
   ]
 }
